@@ -1,7 +1,26 @@
 @import "tailwindcss";
+@import "./typeset.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+.typeset-docs {
+  --typeset-font-body: var(--font-geist);
+  --typeset-font-heading: var(--font-geist);
+  --typeset-font-mono: var(--font-geist-mono);
+  --typeset-size: 15px;
+  --typeset-leading: 1.6;
+  --typeset-flow: 1.25em;
+}
+
+.geist {
+  --font-geist: "Geist Variable", sans-serif;
+}
+
+.geist-mono {
+  --font-geist-mono: "Geist Mono Variable", monospace;
+}
 
 @custom-variant dark (&:is(.dark *));
 
