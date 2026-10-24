@@ -12,6 +12,9 @@ import { flowEdges, flowNodes } from "./flow-model"
 import type { EntityFlowNode } from "./entity-node"
 import type { RelationshipFlowEdge } from "./relationship-edge"
 import { renameProject } from "@/lib/projects/project.functions"
+import type { LayoutGeometry } from "@/lib/diagram/layout"
+
+type CommandBuilder = (data: DiagramEditorData) => Promise<DiagramCommand>
 
 const statusSchema = z.object({
   revision: z.number().int().nonnegative(),
@@ -141,22 +144,29 @@ export function useDiagramEditor(
     setPreview(null)
     display(next.snapshot)
   }
-  async function commit(command: DiagramCommand): Promise<boolean> {
+  async function commit(
+    command: DiagramCommand | CommandBuilder
+  ): Promise<boolean> {
     if (
       busy.current ||
       !current.current.canEdit ||
-      (preview && command.type !== "restore")
+      (preview && (typeof command === "function" || command.type !== "restore"))
     )
       return false
     busy.current = true
     setPending(true)
     setError(null)
     try {
+      const before = current.current
+      const generation = syncGeneration.current
+      const mutation =
+        typeof command === "function" ? await command(before) : command
+      if (generation !== syncGeneration.current) return false
       const result = await editDiagram({
         data: {
-          projectId: current.current.project.id,
-          expectedRevision: current.current.revision,
-          command,
+          projectId: before.project.id,
+          expectedRevision: before.revision,
+          command: mutation,
         },
       })
       if (result.ok) {
@@ -177,12 +187,27 @@ export function useDiagramEditor(
       return false
     } catch {
       display(preview?.snapshot ?? current.current.snapshot)
-      setError("Could not save the change. Try again.")
+      setError(
+        typeof command === "function"
+          ? "Could not arrange the diagram. Try again."
+          : "Could not save the change. Try again."
+      )
       return false
     } finally {
       busy.current = false
       setPending(false)
     }
+  }
+  async function arrange(geometry: Array<LayoutGeometry>) {
+    return commit(async (latest) => {
+      const { arrangeDiagram } = await import("./auto-layout")
+      const positions = await arrangeDiagram(latest.snapshot, geometry)
+      return {
+        type: "batch",
+        summary: "Arranged diagram",
+        commands: [{ type: "move_entities", positions }],
+      }
+    })
   }
   async function showRevision(revision: number) {
     if (busy.current) return
@@ -261,6 +286,7 @@ export function useDiagramEditor(
     onNodesChange,
     onEdgesChange,
     commit,
+    arrange,
     showRevision,
     reload,
     rename,

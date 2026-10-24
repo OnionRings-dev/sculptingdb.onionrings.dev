@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite"
 
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
+  worker: { format: "es" },
   plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
 })
 

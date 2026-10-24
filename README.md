@@ -163,6 +163,12 @@ covering it; it remains a separate column on small screens too.
 - Move nodes by dragging or using arrow keys while selected. Delete selected
   nodes/relationships with the toolbar or Delete/Backspace. Deleting an entity
   removes its attributes and incident relationships.
+- **Arrange diagram**, beside the zoom controls, uses ELK's layered layout to
+  spread out entities using their measured sizes and primary-key connection
+  points, then fits the result into view. It changes only positions, saves one
+  history entry and can be restored through history. Repeating an unchanged
+  layout does not add a revision. The layout engine loads on demand in a Web
+  Worker; existing relationship routing remains, so crossings can still occur.
 - Each completed form save, drag, keyboard move, connection, or deletion saves
   atomically with a full history snapshot. No-op saves, selection, zoom and pan
   do not create revisions. The first edit also captures the initial state, so an

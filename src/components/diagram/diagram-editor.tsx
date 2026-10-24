@@ -5,11 +5,13 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useReactFlow,
+  useNodesInitialized,
 } from "@xyflow/react"
 import { useTheme } from "next-themes"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Add01Icon,
+  ArrangeIcon,
   ArrowExpand01Icon,
   ArrowLeft01Icon,
   Cancel01Icon,
@@ -125,6 +127,7 @@ function EditorCanvas({
     [edges]
   )
   const flow = useReactFlow<EntityFlowNode, RelationshipFlowEdge>()
+  const nodesInitialized = useNodesInitialized()
   const surface = useRef<HTMLDivElement>(null)
   const { resolvedTheme } = useTheme()
   const snapshot = preview?.snapshot ?? data.snapshot
@@ -132,6 +135,24 @@ function EditorCanvas({
   const selectedNodes = nodes.filter((node) => node.selected)
   const selectedEdges = edges.filter((edge) => edge.selected)
   const selected = selectedNodes.length + selectedEdges.length > 0
+
+  async function arrangeDiagram() {
+    if (!editable || !nodesInitialized || nodes.length < 2) return
+    const geometry = flow.getNodes().map((node) => {
+      const internal = flow.getInternalNode(node.id)
+      const handle = internal?.internals.handleBounds?.source?.[0]
+      return {
+        id: node.id,
+        width: node.measured?.width ?? 0,
+        height: node.measured?.height ?? 0,
+        anchorY: handle
+          ? handle.y + handle.height / 2
+          : (node.measured?.height ?? 0) / 2,
+      }
+    })
+    if (await editor.arrange(geometry))
+      await flow.fitView({ padding: 0.3, maxZoom: 1, duration: 250 })
+  }
 
   function newEntity() {
     if (!editable || !surface.current) return
@@ -434,6 +455,16 @@ function EditorCanvas({
                 void flow.fitView({ padding: 0.3, maxZoom: 1 })
               }}
             />
+            {data.canEdit && !preview && (
+              <IconButton
+                label="Arrange diagram"
+                icon={ArrangeIcon}
+                onClick={() => {
+                  void arrangeDiagram()
+                }}
+                disabled={!editable || !nodesInitialized || nodes.length < 2}
+              />
+            )}
           </div>
           {data.canEdit && !preview && (
             <div className="diagram-toolbar pointer-events-auto flex items-center gap-1 p-1">
