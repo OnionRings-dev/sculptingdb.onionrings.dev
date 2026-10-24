@@ -6,6 +6,30 @@ import * as schema from "@/db/schema"
 export type Database = NodePgDatabase<typeof schema>
 export type Executor = Pick<Database, "select" | "insert" | "update" | "delete">
 
+export async function activeConnection(
+  executor: Executor,
+  userId: string,
+  clientId: string,
+  id?: string,
+  key?: string
+) {
+  const row = (
+    await executor
+      .select()
+      .from(schema.mcpConnection)
+      .where(
+        and(
+          eq(schema.mcpConnection.userId, userId),
+          eq(schema.mcpConnection.clientId, clientId),
+          id ? eq(schema.mcpConnection.id, id) : undefined,
+          key ? eq(schema.mcpConnection.key, key) : undefined
+        )
+      )
+      .for("share")
+  ).at(0)
+  return row && !row.revokedAt ? row : null
+}
+
 export async function projectAccess(
   executor: Executor,
   userId: string,

@@ -3,9 +3,9 @@ import { and, eq, isNull } from "drizzle-orm"
 import { APIError } from "better-auth/api"
 import { oauthProvider } from "@better-auth/oauth-provider"
 import * as schema from "@/db/schema"
-import { projectAccess } from "./access.server"
+import { activeConnection, projectAccess } from "./access.server"
 import type { Database } from "./access.server"
-import { MCP_SCOPES, resourceProjectId } from "./config"
+import { appMcpResource, MCP_SCOPES, resourceProjectId } from "./config"
 
 export function projectOAuthProvider(database: Database, origin: string) {
   return oauthProvider({
@@ -27,6 +27,23 @@ export function projectOAuthProvider(database: Database, origin: string) {
       {
         claims: {
           accessToken: async ({ user, client, resources, scopes }) => {
+            if (
+              user &&
+              resources?.length === 1 &&
+              resources[0] === appMcpResource(origin)
+            ) {
+              const connection = await activeConnection(
+                database,
+                user.id,
+                client.clientId
+              )
+              if (!connection || !scopes.includes("diagram:read"))
+                throw new APIError("FORBIDDEN", { error: "access_denied" })
+              return {
+                mcp_connection_id: connection.id,
+                mcp_connection_key: connection.key,
+              }
+            }
             const projectId =
               resources?.length === 1
                 ? resourceProjectId(origin, resources[0])

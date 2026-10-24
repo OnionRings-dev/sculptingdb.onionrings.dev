@@ -9,7 +9,11 @@ import {
 } from "@/lib/diagram/diagram-store.server"
 import { commandSchema } from "@/lib/diagram/model"
 import type { Database, Executor } from "./access.server"
-import { activeAuthorization, projectAccess } from "./access.server"
+import {
+  activeAuthorization,
+  activeConnection,
+  projectAccess,
+} from "./access.server"
 import { LEASE_DURATION_MS } from "./config"
 
 export const principalSchema = z.object({
@@ -19,6 +23,8 @@ export const principalSchema = z.object({
   authorizationId: z.uuid(),
   authorizationKey: z.uuid(),
   canWrite: z.boolean(),
+  connectionId: z.uuid().optional(),
+  connectionKey: z.uuid().optional(),
 })
 export type McpPrincipal = z.infer<typeof principalSchema>
 export class McpOperationError extends Error {
@@ -31,6 +37,20 @@ export class McpOperationError extends Error {
   }
 }
 async function checkPrincipal(executor: Executor, principal: McpPrincipal) {
+  if (
+    principal.connectionId &&
+    !(await activeConnection(
+      executor,
+      principal.userId,
+      principal.clientId,
+      principal.connectionId,
+      principal.connectionKey
+    ))
+  )
+    throw new McpOperationError(
+      "access_denied",
+      "Client access was revoked. Connect the client again."
+    )
   const grant = await activeAuthorization(
     executor,
     principal.authorizationId,

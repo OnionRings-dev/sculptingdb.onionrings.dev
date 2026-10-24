@@ -4,6 +4,9 @@ export const MCP_SCOPES = [
   "offline_access",
 ] as const
 export const LEASE_DURATION_MS = 10 * 60_000
+export const MCP_PATH = "/api/mcp"
+export const MCP_METADATA_PATH = "/.well-known/oauth-protected-resource/api/mcp"
+export const appMcpResource = (origin: string) => `${origin}${MCP_PATH}`
 export const projectMcpPath = (projectId: string) => `/api/mcp/${projectId}`
 export const projectMcpResource = (origin: string, projectId: string) =>
   `${origin}${projectMcpPath(projectId)}`

@@ -7,6 +7,8 @@ test("only auth and exact project MCP endpoints bypass the API cookie guard", ()
     "/api/auth",
     "/api/auth/oauth2/token",
     "/api/mcp/consent",
+    "/api/mcp",
+    "/api/mcp/",
     `/api/mcp/${projectId}`,
     `/API/MCP/${projectId.toUpperCase()}/`,
   ])

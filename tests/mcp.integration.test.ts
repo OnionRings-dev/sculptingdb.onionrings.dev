@@ -39,9 +39,18 @@ import {
 import {
   protectedResourceMetadata,
   serveProjectMcp,
+  serveAppMcp,
 } from "../src/lib/mcp/server.server"
-import { projectMcpResource } from "../src/lib/mcp/config"
+import { appMcpResource, projectMcpResource } from "../src/lib/mcp/config"
 import { consentRedirect } from "../src/lib/mcp/consent-redirect.server"
+
+import {
+  authorizeConnection,
+  disconnectClient,
+  prepareAppConnection,
+  projectConnectionStatus,
+  setClientProjectAccess,
+} from "../src/lib/mcp/connection-store.server"
 
 const databaseURL = process.env.TEST_DATABASE_URL
 const appSecret = "integration-test-app-secret-at-least-32-characters"
@@ -86,6 +95,9 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
       fetch: (request) => {
         const path = new URL(request.url).pathname
         if (path.startsWith("/api/auth/")) return auth.handler(request)
+        if (path === "/api/mcp") return serveAppMcp(request, db, auth, origin)
+        if (path === "/.well-known/oauth-protected-resource/api/mcp")
+          return Response.json(protectedResourceMetadata(origin))
         const id = path.split("/").pop()!
         if (path.startsWith("/.well-known/oauth-protected-resource/api/mcp/"))
           return Response.json(protectedResourceMetadata(origin, id))
@@ -142,6 +154,7 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
     await db
       .insert(schema.projectMember)
       .values({ projectId, userId: memberId, role: "edit" })
+    resources.push(await prepareAppConnection(db, origin))
     for (const id of [projectId, otherId]) {
       const prepared = await prepareConnection(db, ownerId, id, origin)
       expect(prepared).not.toBeNull()
@@ -237,7 +250,14 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
     accept: boolean,
     scopes = "diagram:read diagram:write offline_access"
   ) {
-    if (accept) await authorizeProject(db, userId, projectId, clientId, origin)
+    if (accept) {
+      if (
+        new URLSearchParams(oauthQuery).get("resource") ===
+        appMcpResource(origin)
+      )
+        await authorizeConnection(db, userId, clientId, origin)
+      else await authorizeProject(db, userId, projectId, clientId, origin)
+    }
     const response = await fetch(`${origin}/api/auth/oauth2/consent`, {
       method: "POST",
       headers: {
@@ -273,10 +293,14 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
   async function connect(
     mode: "legacy" | "modern" = "modern",
     userId = ownerId,
-    scopes?: string
+    scopes?: string,
+    app = false
   ) {
     const clientId = await register(mode === "legacy" ? "Codex" : "OpenCode")
-    const request = await authorization(clientId, userId, undefined, scopes)
+    const resource = app
+      ? appMcpResource(origin)
+      : projectMcpResource(origin, projectId)
+    const request = await authorization(clientId, userId, resource, scopes)
     const redirect = await consent(
       clientId,
       userId,
@@ -288,7 +312,8 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
     const response = await token(
       clientId,
       redirect.searchParams.get("code")!,
-      request.verifier
+      request.verifier,
+      resource
     )
     expect(response.status).toBe(200)
     const tokens = (await response.json()) as {
@@ -307,14 +332,11 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
       }
     )
     await client.connect(
-      new StreamableHTTPClientTransport(
-        new URL(projectMcpResource(origin, projectId)),
-        {
-          requestInit: {
-            headers: { Authorization: `Bearer ${tokens.access_token}` },
-          },
-        }
-      )
+      new StreamableHTTPClientTransport(new URL(resource), {
+        requestInit: {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        },
+      })
     )
     connected.push(client)
     return { client, clientId, tokens }
@@ -330,6 +352,309 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
       data: result.structuredContent as Record<string, unknown>,
     }
   }
+  async function connectionId(clientId: string, userId = ownerId) {
+    const found = (
+      await db
+        .select()
+        .from(schema.mcpConnection)
+        .where(eq(schema.mcpConnection.clientId, clientId))
+    ).find((row) => row.userId === userId)!
+    return found.id
+  }
+  for (const mode of ["modern", "legacy"] as const)
+    test(`one app connection serves multiple opt-in projects with ${mode} protocol`, async () => {
+      const { client, clientId, tokens } = await connect(
+        mode,
+        ownerId,
+        undefined,
+        true
+      )
+      const id = await connectionId(clientId)
+      expect(
+        (await client.listTools()).tools.map((tool) => tool.name)
+      ).toContain("list_projects")
+      expect((await call(client, "list_projects")).data.projects).toEqual([])
+      expect(
+        (await call(client, "open_project", { projectId })).data.code
+      ).toBe("access_denied")
+      expect(
+        await setClientProjectAccess(db, ownerId, projectId, id, true)
+      ).toBe(true)
+      expect((await call(client, "list_projects")).data.projects).toEqual([
+        expect.objectContaining({ id: projectId, canEdit: true }),
+      ])
+      const first = await call(client, "open_project", { projectId })
+      expect(first.error).toBe(false)
+      const leaseId = first.data.leaseId
+      expect(
+        (await call(client, "open_project", { projectId: otherId })).data.code
+      ).toBe("access_denied")
+      expect(await setClientProjectAccess(db, ownerId, otherId, id, true)).toBe(
+        true
+      )
+      const second = await call(client, "open_project", { projectId: otherId })
+      expect(second.error).toBe(false)
+      expect(
+        (await call(client, "get_diagram", { projectId: otherId, leaseId }))
+          .data.code
+      ).toBe("lease_expired")
+      const change = await call(client, "apply_changes", {
+        projectId,
+        leaseId,
+        requestId: randomUUID(),
+        expectedRevision: 0,
+        summary: "App connection edit",
+        changes: [{ type: "upsert_entity", entity: entity(), attributes: [] }],
+      })
+      expect(change.error).toBe(false)
+      expect((await loadDiagram(db, ownerId, otherId))!.revision).toBe(0)
+      expect((await loadDiagram(db, ownerId, projectId))!.revision).toBe(2)
+      expect(
+        (await call(client, "list_history", { projectId, leaseId })).data
+          .history
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ revision: 2, origin: "mcp" }),
+        ])
+      )
+      expect(
+        (
+          await call(client, "restore_revision", {
+            projectId,
+            leaseId,
+            requestId: randomUUID(),
+            expectedRevision: 2,
+            revision: 1,
+          })
+        ).data.revision
+      ).toBe(3)
+      const renewed = await fetch(`${origin}/api/auth/oauth2/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: clientId,
+          refresh_token: tokens.refresh_token,
+          resource: appMcpResource(origin),
+        }),
+      })
+      expect(renewed.status).toBe(200)
+
+      expect(
+        await setClientProjectAccess(db, ownerId, projectId, id, false)
+      ).toBe(true)
+      expect(
+        (await call(client, "get_diagram", { projectId, leaseId })).data.code
+      ).toBe("access_denied")
+      expect((await call(client, "list_projects")).data.projects).toEqual([
+        expect.objectContaining({ id: otherId }),
+      ])
+      expect(
+        (
+          await call(client, "get_diagram", {
+            projectId: otherId,
+            leaseId: second.data.leaseId,
+          })
+        ).error
+      ).toBe(false)
+      expect(
+        await setClientProjectAccess(db, ownerId, projectId, id, true)
+      ).toBe(true)
+      const reopened = await call(client, "open_project", { projectId })
+      expect(reopened.data.leaseId).not.toBe(leaseId)
+      const wrongAudience = await fetch(projectMcpResource(origin, projectId), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      })
+      expect(wrongAudience.status).toBe(401)
+      expect(await disconnectClient(db, strangerId, id, origin)).toBe(false)
+      expect(await disconnectClient(db, ownerId, id, origin)).toBe(true)
+      const revoked = await fetch(appMcpResource(origin), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      })
+      expect(revoked.status).toBe(401)
+      expect(
+        await db
+          .select()
+          .from(schema.projectMcpLease)
+          .where(eq(schema.projectMcpLease.userId, ownerId))
+      ).toHaveLength(0)
+      const refreshed = await fetch(`${origin}/api/auth/oauth2/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: clientId,
+          refresh_token: tokens.refresh_token,
+          resource: appMcpResource(origin),
+        }),
+      })
+      expect(refreshed.status).toBeGreaterThanOrEqual(400)
+    })
+
+  test("a read-only app token cannot write even when its owner can edit the enabled project", async () => {
+    const { client, clientId } = await connect(
+      "modern",
+      ownerId,
+      "diagram:read offline_access",
+      true
+    )
+    expect(
+      await setClientProjectAccess(
+        db,
+        ownerId,
+        projectId,
+        await connectionId(clientId),
+        true
+      )
+    ).toBe(true)
+    expect((await call(client, "list_projects")).data.projects).toEqual([
+      expect.objectContaining({ id: projectId, canEdit: false }),
+    ])
+    const opened = await call(client, "open_project", { projectId })
+    expect(opened.data.canEdit).toBe(false)
+    expect(
+      (
+        await call(client, "apply_changes", {
+          projectId,
+          leaseId: opened.data.leaseId,
+          requestId: randomUUID(),
+          expectedRevision: 0,
+          summary: "Denied",
+          changes: [
+            { type: "upsert_entity", entity: entity(), attributes: [] },
+          ],
+        })
+      ).data.code
+    ).toBe("read_only")
+  })
+
+  test("project toggles are per client and owners cannot grant clients belonging to other users", async () => {
+    const first = await connect("modern", ownerId, undefined, true)
+    const second = await connect("modern", ownerId, undefined, true)
+    const firstId = await connectionId(first.clientId),
+      secondId = await connectionId(second.clientId)
+    expect(
+      await setClientProjectAccess(db, strangerId, projectId, firstId, true)
+    ).toBe(false)
+    expect(
+      await setClientProjectAccess(db, ownerId, projectId, firstId, true)
+    ).toBe(true)
+    const status = await projectConnectionStatus(db, ownerId, projectId)
+    expect(
+      status!.clients.map((row) => ({ id: row.id, enabled: row.enabled }))
+    ).toEqual(
+      expect.arrayContaining([
+        { id: firstId, enabled: true },
+        { id: secondId, enabled: false },
+      ])
+    )
+    expect((await call(second.client, "list_projects")).data.projects).toEqual(
+      []
+    )
+    const member = await connect("modern", memberId, undefined, true)
+    const memberConnection = await connectionId(member.clientId, memberId)
+    expect(
+      await setClientProjectAccess(
+        db,
+        ownerId,
+        projectId,
+        memberConnection,
+        true
+      )
+    ).toBe(false)
+    expect(
+      await setClientProjectAccess(
+        db,
+        memberId,
+        projectId,
+        memberConnection,
+        true
+      )
+    ).toBe(true)
+    expect(
+      (await projectConnectionStatus(db, ownerId, projectId))!.clients.some(
+        (row) => row.id === memberConnection && !row.isOwn
+      )
+    ).toBe(true)
+    expect(
+      (await projectConnectionStatus(db, memberId, projectId))!.clients.some(
+        (row) => row.id === firstId
+      )
+    ).toBe(false)
+    expect(
+      await setClientProjectAccess(
+        db,
+        ownerId,
+        projectId,
+        memberConnection,
+        false
+      )
+    ).toBe(true)
+    expect((await call(member.client, "list_projects")).data.projects).toEqual(
+      []
+    )
+    expect(await disconnectClient(db, ownerId, memberConnection, origin)).toBe(
+      false
+    )
+  })
+
+  test("an app token respects View/Edit changes and membership removal without revoking its other projects", async () => {
+    const connectedMember = await connect("modern", memberId, undefined, true)
+    const id = await connectionId(connectedMember.clientId, memberId)
+    expect(
+      await setClientProjectAccess(db, memberId, projectId, id, true)
+    ).toBe(true)
+    const ownedProjectId = (await createUntitledProject(db, memberId)).id
+    expect(
+      await setClientProjectAccess(db, memberId, ownedProjectId, id, true)
+    ).toBe(true)
+    const opened = await call(connectedMember.client, "open_project", {
+      projectId,
+    })
+    const leaseId = opened.data.leaseId
+    await updateProjectMember(db, ownerId, {
+      projectId,
+      userId: memberId,
+      role: "view",
+    })
+    expect(
+      (
+        await call(connectedMember.client, "get_diagram", {
+          projectId,
+          leaseId,
+        })
+      ).data.canEdit
+    ).toBe(false)
+    expect(
+      (
+        await call(connectedMember.client, "apply_changes", {
+          projectId,
+          leaseId,
+          requestId: randomUUID(),
+          expectedRevision: 0,
+          summary: "Denied",
+          changes: [
+            { type: "upsert_entity", entity: entity(), attributes: [] },
+          ],
+        })
+      ).data.code
+    ).toBe("read_only")
+    await removeProjectMember(db, ownerId, { projectId, userId: memberId })
+    expect(
+      (await call(connectedMember.client, "list_projects")).data.projects
+    ).toEqual([expect.objectContaining({ id: ownedProjectId })])
+    expect(
+      (await call(connectedMember.client, "open_project", { projectId })).data
+        .code
+    ).toBe("access_denied")
+    expect(
+      await setClientProjectAccess(db, memberId, projectId, id, true)
+    ).toBe(false)
+    expect((await connectedMember.client.listTools()).tools).toHaveLength(7)
+  })
+
   const entity = () => ({
     id: randomUUID(),
     name: "Customer",

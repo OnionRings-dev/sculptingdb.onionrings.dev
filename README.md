@@ -88,7 +88,7 @@ in this repository. Never use `VITE_*` variables for these values.
 - The root route checks the server session on navigation and returns only user
   data to the router. App APIs under `/api/*` return **401** to anonymous callers;
   `/api/auth/*` stays public so Better Auth can handle login and callbacks.
-  `/api/mcp/<project UUID>` instead authenticates bearer tokens and returns an
+  `/api/mcp` and legacy `/api/mcp/<project UUID>` authenticate bearer tokens and returns an
   OAuth discovery challenge without requiring a browser session; the signed
   consent redirect is public but its destination requires login.
   New server functions that expose app data or mutate it must call
@@ -189,21 +189,35 @@ retention can be optimized later.
 
 ## MCP
 
-Use **Connect MCP** beside the account menu inside a project. The dialog provides
-its endpoint, Codex commands and an OpenCode configuration, and lets users revoke
-client access. The owner can also revoke collaborators' client authorizations.
+Use **MCP clients** beside the account menu inside a project. Its list shows the
+clients connected to your account, with one switch per client to enable this
+project. New connections start with no project access. **Connect** reveals the
+single server URL and client setup instructions. **Disconnect** revokes a client
+on all your projects, with confirmation. Project owners can disable a
+collaborator's existing project grant, but cannot connect or enable their client
+on their behalf.
 
-The server supports MCP **2026-07-28** and stateless legacy initialization for
-clients such as Codex. Public OAuth clients register dynamically, use PKCE, and
-authorize one project through the existing login. View access stays read-only.
-One MCP lease per project expires after ten idle minutes; manual edits remain
-available and revision checks protect concurrent work. Agent changes are atomic
-and create history entries with origin `mcp`.
+The shared endpoint is `/api/mcp`, configured once as `sculpting-db`. Tools include
+`list_projects`; all project tools require an explicit `projectId`. MCP
+**2026-07-28** and stateless legacy initialization are supported. OAuth clients
+register dynamically, use PKCE, and authorize the app through the existing
+login. Each operation checks the client's project grant and current View/Edit
+membership. One MCP lease per project expires after ten idle minutes; manual
+edits remain available and revision checks protect concurrent work.
 
-Apply migration `0002_foamy_shaman.sql` using `bun run db:migrate` before starting.
-No additional identity-provider registration or secrets are required. See
-[MCP setup and behavior](docs/mcp.md) for client configuration, tool contracts,
-security boundaries and current limitations.
+Old `/api/mcp/<projectId>` connections remain restricted to their original project
+and are listed separately under **Project connections**, where they can be
+revoked after moving to the shared endpoint. Existing authorizations are not
+merged by client name: two clients named Codex can be separate installations.
+
+Codex starts OAuth from `mcp add`, so the setup instructions do not automatically
+run a second `mcp login`. That command is only a fallback if authorization is
+still required.
+
+Apply all migrations with `bun run db:migrate`, including
+`0003_zippy_cable.sql` for account-level client connections. No additional
+identity-provider registration or secrets are required. See
+[MCP setup and behavior](docs/mcp.md) for configuration and tool contracts.
 
 ## Checks
 

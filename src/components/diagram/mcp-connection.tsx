@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Copy01Icon, Link01Icon } from "@hugeicons/core-free-icons"
+import { Link01Icon } from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -11,86 +11,38 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
-  Field,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-  InputGroupTextarea,
-} from "@/components/ui/input-group"
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+  FieldGroup,
+} from "@/components/ui/field"
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
 import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import {
   disconnectMcp,
+  disconnectMcpClient,
   getMcpConnection,
   getMcpStatus,
+  setMcpProjectAccess,
 } from "@/lib/mcp/mcp.functions"
+import { McpConnectInstructions } from "./mcp-connect-instructions"
 
 type Connection = NonNullable<Awaited<ReturnType<typeof getMcpConnection>>>
-
-function CopyField({
-  label,
-  value,
-  rows,
-}: {
-  label: string
-  value: string
-  rows?: number
-}) {
-  const [copied, setCopied] = useState(false)
-  const [failed, setFailed] = useState(false)
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      setFailed(false)
-    } catch {
-      setFailed(true)
-    }
-  }
-  return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <InputGroup>
-        {rows ? (
-          <InputGroupTextarea
-            aria-label={label}
-            value={value}
-            readOnly
-            rows={rows}
-          />
-        ) : (
-          <InputGroupInput aria-label={label} value={value} readOnly />
-        )}
-        <InputGroupAddon align={rows ? "block-end" : "inline-end"}>
-          <InputGroupButton
-            aria-label={`Copy ${label}`}
-            onClick={() => {
-              void copy()
-            }}
-          >
-            <HugeiconsIcon
-              icon={Copy01Icon}
-              data-icon="inline-start"
-              strokeWidth={1.5}
-            />
-            {copied ? "Copied" : "Copy"}
-          </InputGroupButton>
-        </InputGroupAddon>
-      </InputGroup>
-      {failed && (
-        <FieldError>
-          Could not copy. Select the text to copy it manually.
-        </FieldError>
-      )}
-    </Field>
-  )
-}
+type Client = NonNullable<Connection["status"]>["clients"][number]
 
 export function McpConnection({ projectId }: { projectId: string }) {
   const [open, setOpen] = useState(false)
@@ -104,8 +56,8 @@ export function McpConnection({ projectId }: { projectId: string }) {
     >
       <DialogTrigger
         render={<Button variant="ghost" size="icon" />}
-        aria-label="Connect MCP"
-        title="Connect MCP"
+        aria-label="MCP clients"
+        title="MCP clients"
       >
         <HugeiconsIcon icon={Link01Icon} strokeWidth={1.5} />
       </DialogTrigger>
@@ -118,6 +70,86 @@ export function McpConnection({ projectId }: { projectId: string }) {
         />
       )}
     </Dialog>
+  )
+}
+
+function ClientRow({
+  client,
+  pending,
+  onToggle,
+  onDisconnect,
+}: {
+  client: Client
+  pending: boolean
+  onToggle: (enabled: boolean) => void
+  onDisconnect: () => Promise<boolean>
+}) {
+  const [confirm, setConfirm] = useState(false)
+  return (
+    <>
+      <Field orientation="horizontal">
+        <FieldContent className="min-w-0">
+          <FieldLabel
+            htmlFor={`mcp-${client.id}`}
+            className="truncate"
+            title={`Client ID: ${client.clientId}`}
+          >
+            {client.clientName} · {client.id.slice(-6)}
+          </FieldLabel>
+          <FieldDescription className="truncate">
+            {client.userName}
+          </FieldDescription>
+        </FieldContent>
+        <Switch
+          id={`mcp-${client.id}`}
+          aria-label={`Allow ${client.clientName} ${client.id.slice(-6)} to access this project`}
+          checked={client.enabled}
+          disabled={pending || !client.canToggle}
+          onCheckedChange={onToggle}
+        />
+        {client.isOwn && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={pending}
+            onClick={() => setConfirm(true)}
+          >
+            Disconnect
+          </Button>
+        )}
+      </Field>
+      <AlertDialog
+        open={confirm}
+        onOpenChange={(next) => {
+          if (!pending) setConfirm(next)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Disconnect {client.clientName}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the client's access to all your projects. You can
+              connect it again later. To disable only this project, use its
+              switch.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={pending}
+              onClick={() => {
+                void onDisconnect().then((success) => {
+                  if (success) setConfirm(false)
+                })
+              }}
+            >
+              Disconnect
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
@@ -134,6 +166,9 @@ function ConnectionDialog({
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [attempt, setAttempt] = useState(0)
+  const [instructions, setInstructions] = useState(false)
+  const generation = useRef(0)
+  const busy = useRef(false)
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -151,125 +186,161 @@ function ConnectionDialog({
         if (!cancelled) setLoading(false)
       })
     const interval = setInterval(() => {
+      if (busy.current) return
+      const requestGeneration = generation.current
       getMcpStatus({ data: { projectId } })
         .then((status) => {
-          if (!cancelled)
+          if (!cancelled && requestGeneration === generation.current)
             setConnection((current) =>
               current ? { ...current, status } : current
             )
         })
         .catch(() => {
-          /* The next poll retries; no credentials are kept in the browser. */
+          /* Retry on the next poll. */
         })
     }, 3000)
     return () => {
       cancelled = true
       clearInterval(interval)
+      generation.current++
     }
   }, [projectId, attempt])
-  async function revoke(authorizationId: string) {
-    if (pending) return
+  async function mutate(action: () => Promise<boolean>) {
+    if (busy.current) return false
+    busy.current = true
+    generation.current++
     setPending(true)
     setError(null)
     try {
-      if (!(await disconnectMcp({ data: { projectId, authorizationId } })))
-        throw new Error("Unavailable")
+      if (!(await action())) throw new Error("Unavailable")
       const status = await getMcpStatus({ data: { projectId } })
       setConnection((current) => (current ? { ...current, status } : current))
+      return true
     } catch {
-      setError("Could not revoke access. Try again.")
+      setError("Could not update client access. Try again.")
+      return false
     } finally {
+      busy.current = false
       setPending(false)
     }
   }
-  const name = `sculpting-${projectId.slice(0, 8)}`
+  const status = connection?.status
   return (
     <DialogContent
       className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl"
       showCloseButton={!pending}
     >
       <DialogHeader>
-        <DialogTitle>Connect MCP</DialogTitle>
+        <div className="flex items-center justify-between gap-3 pr-6">
+          <DialogTitle>
+            {instructions ? "Connect a client" : "MCP clients"}
+          </DialogTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending || !connection}
+            onClick={() => setInstructions((value) => !value)}
+          >
+            {instructions ? "Back" : "Connect"}
+          </Button>
+        </div>
         <DialogDescription>
-          Connect your client, then authorize this project in the browser.
+          {instructions
+            ? "Connect Sculpting DB once, then choose which projects to enable."
+            : "Choose which clients can access this project."}
         </DialogDescription>
       </DialogHeader>
       {loading ? (
         <div
           role="status"
-          aria-label="Loading connection"
+          aria-label="Loading clients"
           className="flex justify-center p-6"
         >
           <Spinner />
         </div>
       ) : connection ? (
-        <>
-          <FieldGroup>
-            <CopyField label="Project URL" value={connection.resource} />
-            <CopyField
-              label="Codex"
-              value={`codex mcp add ${name} --url ${connection.resource}\ncodex mcp login ${name} --oauth-client-registration dcr`}
-              rows={3}
-            />
-            <CopyField
-              label="OpenCode · opencode.json"
-              value={JSON.stringify(
-                {
-                  $schema: "https://opencode.ai/config.json",
-                  mcp: {
-                    servers: {
-                      [name]: {
-                        type: "remote",
-                        url: connection.resource,
-                        protocol: "2026-07-28",
-                      },
-                    },
-                  },
-                },
-                null,
-                2
-              )}
-              rows={8}
-            />
-          </FieldGroup>
-          <p className="text-xs text-muted-foreground">
-            In OpenCode, run <code>opencode mcp auth {name}</code>. Ask your
-            agent to open this project when you are ready.
-          </p>
-          <Separator />
-          <div className="flex flex-col gap-3" aria-label="MCP access">
-            <p className="text-sm">
-              {connection.status?.lease
-                ? `In use by ${connection.status.lease.userName} · ${connection.status.lease.clientName ?? "MCP client"}`
-                : "No active MCP client"}
-            </p>
-            {connection.status?.grants.map((grant) => (
-              <div
-                key={grant.id}
-                className="flex min-w-0 items-center justify-between gap-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm">
-                    {grant.clientName ?? "MCP client"}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {grant.userName}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pending}
-                  onClick={() => {
-                    void revoke(grant.id)
-                  }}
-                >
-                  Revoke access
-                </Button>
-              </div>
-            ))}
-          </div>
-        </>
+        instructions ? (
+          <McpConnectInstructions resource={connection.resource} />
+        ) : (
+          <>
+            {status?.lease && (
+              <p className="text-xs text-muted-foreground">
+                In use by {status.lease.userName} ·{" "}
+                {status.lease.clientName ?? "MCP client"}
+              </p>
+            )}
+            {!!status?.clients.length && (
+              <FieldGroup aria-label="Connected MCP clients">
+                {status.clients.map((client) => (
+                  <ClientRow
+                    key={client.id}
+                    client={client}
+                    pending={pending}
+                    onToggle={(enabled) => {
+                      void mutate(() =>
+                        setMcpProjectAccess({
+                          data: { projectId, connectionId: client.id, enabled },
+                        })
+                      )
+                    }}
+                    onDisconnect={() =>
+                      mutate(() =>
+                        disconnectMcpClient({
+                          data: { connectionId: client.id },
+                        })
+                      )
+                    }
+                  />
+                ))}
+              </FieldGroup>
+            )}
+            {!!status?.legacy.length && (
+              <>
+                {!!status.clients.length && <Separator />}
+                <p className="text-xs text-muted-foreground">
+                  Project connections
+                </p>
+                {status.legacy.map((grant) => (
+                  <div
+                    key={grant.id}
+                    className="flex min-w-0 items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm">
+                        {grant.clientName ?? "MCP client"} ·{" "}
+                        {grant.id.slice(-6)}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {grant.userName}
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => {
+                        void mutate(() =>
+                          disconnectMcp({
+                            data: { projectId, authorizationId: grant.id },
+                          })
+                        )
+                      }}
+                    >
+                      Revoke access
+                    </Button>
+                  </div>
+                ))}
+              </>
+            )}
+            {!status?.clients.length && !status?.legacy.length && (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyTitle>No clients connected</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
+            )}
+          </>
+        )
       ) : (
         <Button
           variant="outline"

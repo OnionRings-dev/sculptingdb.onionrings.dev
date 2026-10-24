@@ -632,3 +632,23 @@ export const oauthClientAssertion = pgTable("oauth_client_assertion", {
   id: text("id").primaryKey(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 })
+
+// Account-level MCP consent. Project access remains an explicit, separate grant.
+export const mcpConnection = pgTable(
+  "mcp_connection",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    clientId: text("client_id")
+      .notNull()
+      .references(() => oauthClient.clientId, { onDelete: "cascade" }),
+    key: uuid("key").defaultRandom().notNull().unique(),
+    createdAt: createdAt(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    unique("mcp_connection_principal_unique").on(table.userId, table.clientId),
+  ]
+)

@@ -5,6 +5,7 @@ export function requiresBrowserSession(pathname: string) {
   if (path !== "/api" && !path.startsWith("/api/")) return false
   if (path === "/api/auth" || path.startsWith("/api/auth/")) return false
   if (path === "/api/mcp/consent") return false
+  if (path === "/api/mcp" || path === "/api/mcp/") return false
   return !/^\/api\/mcp\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/.test(
     path
   )

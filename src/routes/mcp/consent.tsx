@@ -56,17 +56,21 @@ function ConsentPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>Connect {data.clientName}</CardTitle>
-          <CardDescription>{data.projectName}</CardDescription>
+          <CardDescription>
+            {data.projectName ?? "Sculpting DB"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <p className="text-sm">
-            {data.canWrite
-              ? "Read and edit this diagram, including its history."
-              : "Read this diagram and its history."}
+            {!data.projectName
+              ? "Connect this client to your account. Enable individual projects from their MCP panel."
+              : data.canWrite
+                ? "Read and edit this diagram, including its history."
+                : "Read this diagram and its history."}
           </p>
           <p className="text-xs text-muted-foreground">
-            Access stays limited to this project. You can revoke it from the
-            editor.
+            Only enabled projects are accessible, within your current
+            permissions. You can revoke access from the editor.
           </p>
           {failed && (
             <Alert variant="destructive">

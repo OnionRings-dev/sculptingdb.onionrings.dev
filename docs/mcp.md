@@ -1,33 +1,31 @@
 # MCP
 
-Each project exposes a remote MCP endpoint at
-`<BETTER_AUTH_URL>/api/mcp/<PROJECT_UUID>`. Open **Connect MCP** in the editor to
-prepare the resource and copy the actual URL and client configuration.
+The app exposes one remote MCP endpoint at `<BETTER_AUTH_URL>/api/mcp`.
+Open **MCP clients** in a project and choose **Connect** to copy its setup.
 
 ## Connect a client
 
-For Codex CLI:
+For Codex CLI, add the server once:
 
 ```sh
-codex mcp add sculpting-project --url http://localhost:3000/api/mcp/PROJECT_UUID
-codex mcp login sculpting-project --oauth-client-registration dcr
+codex mcp add sculpting-db --url http://localhost:3000/api/mcp --oauth-client-registration dcr
 ```
 
-Authorize the named project in the browser. Restart an already-running Codex
-session to load the new server. Use a distinct server name for each project.
-The explicit DCR registration method matches the server's public-client flow.
+`mcp add` detects OAuth and starts authorization. Do not immediately run a second
+login: that can register another client and open a second consent page. If the
+client still requires authentication, use `codex mcp login sculpting-db` as a
+separate recovery action. Restart an already-running session to load a new server.
 
-For OpenCode v2, merge the following server into `opencode.json` (preserve existing
-settings and replace the URL with the value from the dialog):
+For OpenCode v2, merge this server into `opencode.json`, preserving other settings:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "servers": {
-      "sculpting-project": {
+      "sculpting-db": {
         "type": "remote",
-        "url": "http://localhost:3000/api/mcp/PROJECT_UUID",
+        "url": "http://localhost:3000/api/mcp",
         "protocol": "2026-07-28"
       }
     }
@@ -35,29 +33,38 @@ settings and replace the URL with the value from the dialog):
 }
 ```
 
-Then run:
+Then run `opencode mcp auth sculpting-db` and check `opencode mcp list`.
+Authorize the app in the browser. Return to the project's **MCP clients** panel
+and switch on access for the client. A newly connected client sees no projects
+until enabled. Use the same client connection across projects; enable each one
+explicitly. A new project never inherits access automatically.
 
-```sh
-opencode mcp auth sculpting-project
-opencode mcp list
-```
+Clients with the same display name remain separate, distinguished by a short
+connection ID. Their authorizations must not be merged merely because both are
+called Codex. Existing project-specific connections are shown under **Project
+connections** with a revoke action. They keep working on their original endpoint
+until revoked. Reconfigure each client once with `/api/mcp` and then revoke old
+project authorizations. Remove the old server entries from Codex/OpenCode
+configuration too, so startup does not try to reconnect them. Revoking an app
+authorization does not delete the external client configuration.
 
 The URL must use the exact configured app origin; `localhost` and `127.0.0.1` are
 different origins. Production uses HTTPS. A remote client must be able to reach
 the app; its own `localhost` does not point to a developer's computer.
 
-Codex CLI 0.164.0 was verified through OAuth login and native tool discovery;
-OpenCode 2.1.4 was verified through OAuth login and connected status with the
-2026-07-28 protocol pinned. Integration tests exercise tool calls through both
-modern and legacy SDK clients, without model inference.
+The original project endpoints were verified with Codex CLI 0.164.0 and OpenCode
+2.1.4. The shared endpoint is covered by OAuth and tool-call integration tests
+using both modern and legacy SDK clients, plus browser verification of consent,
+project switches, diagram updates and disconnect, without model inference.
 
 ## Agent workflow
 
-Ask the agent to open the project, inspect the diagram, and make the desired
-changes. Server instructions and JSON schemas describe the tool contract:
+Ask the agent to list available projects, choose one, inspect the diagram and
+make the desired changes. Server instructions and JSON schemas describe the tool contract:
 
 | Tool               | Purpose                                                                                               |
 | ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `list_projects`    | List projects explicitly enabled for this client and still accessible to its user.                    |
 | `open_project`     | Acquire the project's MCP lease and return the current graph, revision and effective edit permission. |
 | `get_diagram`      | Read the complete current graph.                                                                      |
 | `apply_changes`    | Apply 1–100 ordered edits atomically, with one summary and history entry.                             |
@@ -65,7 +72,9 @@ changes. Server instructions and JSON schemas describe the tool contract:
 | `restore_revision` | Restore an earlier snapshot by appending a new revision.                                              |
 | `release_project`  | Release the exact lease so another client can use the project.                                        |
 
-All tools after `open_project` require its `leaseId`. Leases last ten idle minutes;
+Every project tool requires an explicit `projectId`; there is no global active
+project. `list_projects` needs no lease. All tools after `open_project` also
+require its `leaseId`. Leases last ten idle minutes;
 successful calls renew them. Another client, including a different client used
 by the same user, cannot acquire an active lease. The web editor remains usable.
 Closing a client does not reliably notify a stateless server: ask the agent to
@@ -95,18 +104,34 @@ S256, and refresh tokens. Discovery endpoints publish authorization-server and
 project-resource metadata. JWT access tokens expire after 15 minutes; refresh
 tokens expire after 30 days.
 
-Consent authorizes one project and limits requested scopes to current access.
-View members can read and inspect history; owner/Edit members can modify and
-restore. The backend rechecks current grants and membership on every operation.
-Removing a member revokes their project grants and lease. Changing their role
-applies immediately to subsequent operations. A token issued with read scope
-alone requires new consent to gain write scope after a role upgrade.
+App consent creates a unique `mcp_connection` for the user and OAuth client.
+Tokens have the shared endpoint as their audience and contain the connection's
+ID and rotating key. Separate `mcp_authorization` records enable individual
+projects. Requests check current connection/client status; project tools also
+check current project grants and membership inside their transactions. No graph
+or project metadata is exposed until its grant is enabled.
 
-The connection dialog lists the current lease and authorized clients. Users can
-revoke their own grants; project owners can revoke any grant for that project.
-Revocation invalidates the project's grant key, removes its stored OAuth
-credentials and releases its lease. Signing out of the browser does not revoke
-MCP grants: use **Revoke access** to do that.
+View members can read and inspect history; owner/Edit members can modify and
+restore. Role changes take effect on the next operation. App-level write scope
+never overrides a project's View permission. A read-only token remains read-only
+even after a membership upgrade until reauthorized with write scope. Removing a
+member revokes their grants for that project; their app connection and other
+project grants remain valid. Re-inviting does not restore previous MCP access.
+
+The panel lists the user's app clients, including those with this project off.
+Owners additionally see collaborators' clients with active grants for this
+project. Users enable their own clients; an owner may disable a collaborator's
+project grant but cannot opt that person's client in or disconnect it globally.
+Switching off revokes just the project grant, rotates its key and deletes its
+lease, without invalidating the app token or other projects. Switching back on
+requires a new lease. **Disconnect** is owner-of-the-client only: it rotates the
+app connection key, revokes all that client's project grants, releases leases,
+and removes OAuth access/refresh/consent credentials in one transaction.
+
+Legacy project-bound tokens remain restricted to their original audience and
+project grant. A legacy token is rejected by the shared endpoint, and an app
+token is rejected by a legacy endpoint. Browser logout does not disconnect MCP
+clients; use the panel's disconnect action.
 
 The browser receives authenticated SSE hints backed by one database poll per
 second per open editor. It refetches the graph/history only when their version or

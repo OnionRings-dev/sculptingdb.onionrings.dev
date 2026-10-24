@@ -14,10 +14,12 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as McpConsentRouteImport } from './routes/mcp/consent'
 import { Route as ProjectsProjectIdRouteImport } from './routes/projects.$projectId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiMcpIndexRouteImport } from './routes/api/mcp/index'
 import { Route as ApiMcpProjectIdRouteImport } from './routes/api/mcp/$projectId'
 import { Route as ApiMcpConsentRouteImport } from './routes/api/mcp/consent'
 import { Route as DotwellKnownOauthAuthorizationServerApiAuthRouteImport } from './routes/[.]well-known/oauth-authorization-server/api/auth'
 import { Route as ApiProjectsProjectIdEventsRouteImport } from './routes/api/projects/$projectId/events'
+import { Route as DotwellKnownOauthProtectedResourceApiMcpIndexRouteImport } from './routes/[.]well-known/oauth-protected-resource/api/mcp/index'
 import { Route as DotwellKnownOauthProtectedResourceApiMcpProjectIdRouteImport } from './routes/[.]well-known/oauth-protected-resource/api/mcp/$projectId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -45,6 +47,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMcpIndexRoute = ApiMcpIndexRouteImport.update({
+  id: '/api/mcp/',
+  path: '/api/mcp/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiMcpProjectIdRoute = ApiMcpProjectIdRouteImport.update({
   id: '/api/mcp/$projectId',
   path: '/api/mcp/$projectId',
@@ -67,6 +74,12 @@ const ApiProjectsProjectIdEventsRoute =
     path: '/api/projects/$projectId/events',
     getParentRoute: () => rootRouteImport,
   } as any)
+const DotwellKnownOauthProtectedResourceApiMcpIndexRoute =
+  DotwellKnownOauthProtectedResourceApiMcpIndexRouteImport.update({
+    id: '/.well-known/oauth-protected-resource/api/mcp/',
+    path: '/.well-known/oauth-protected-resource/api/mcp/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const DotwellKnownOauthProtectedResourceApiMcpProjectIdRoute =
   DotwellKnownOauthProtectedResourceApiMcpProjectIdRouteImport.update({
     id: '/.well-known/oauth-protected-resource/api/mcp/$projectId',
@@ -82,9 +95,11 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/mcp/$projectId': typeof ApiMcpProjectIdRoute
   '/api/mcp/consent': typeof ApiMcpConsentRoute
+  '/api/mcp/': typeof ApiMcpIndexRoute
   '/.well-known/oauth-authorization-server/api/auth': typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   '/api/projects/$projectId/events': typeof ApiProjectsProjectIdEventsRoute
   '/.well-known/oauth-protected-resource/api/mcp/$projectId': typeof DotwellKnownOauthProtectedResourceApiMcpProjectIdRoute
+  '/.well-known/oauth-protected-resource/api/mcp/': typeof DotwellKnownOauthProtectedResourceApiMcpIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,9 +109,11 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/mcp/$projectId': typeof ApiMcpProjectIdRoute
   '/api/mcp/consent': typeof ApiMcpConsentRoute
+  '/api/mcp': typeof ApiMcpIndexRoute
   '/.well-known/oauth-authorization-server/api/auth': typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   '/api/projects/$projectId/events': typeof ApiProjectsProjectIdEventsRoute
   '/.well-known/oauth-protected-resource/api/mcp/$projectId': typeof DotwellKnownOauthProtectedResourceApiMcpProjectIdRoute
+  '/.well-known/oauth-protected-resource/api/mcp': typeof DotwellKnownOauthProtectedResourceApiMcpIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -107,9 +124,11 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/mcp/$projectId': typeof ApiMcpProjectIdRoute
   '/api/mcp/consent': typeof ApiMcpConsentRoute
+  '/api/mcp/': typeof ApiMcpIndexRoute
   '/.well-known/oauth-authorization-server/api/auth': typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   '/api/projects/$projectId/events': typeof ApiProjectsProjectIdEventsRoute
   '/.well-known/oauth-protected-resource/api/mcp/$projectId': typeof DotwellKnownOauthProtectedResourceApiMcpProjectIdRoute
+  '/.well-known/oauth-protected-resource/api/mcp/': typeof DotwellKnownOauthProtectedResourceApiMcpIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,9 +140,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/mcp/$projectId'
     | '/api/mcp/consent'
+    | '/api/mcp/'
     | '/.well-known/oauth-authorization-server/api/auth'
     | '/api/projects/$projectId/events'
     | '/.well-known/oauth-protected-resource/api/mcp/$projectId'
+    | '/.well-known/oauth-protected-resource/api/mcp/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,9 +154,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/mcp/$projectId'
     | '/api/mcp/consent'
+    | '/api/mcp'
     | '/.well-known/oauth-authorization-server/api/auth'
     | '/api/projects/$projectId/events'
     | '/.well-known/oauth-protected-resource/api/mcp/$projectId'
+    | '/.well-known/oauth-protected-resource/api/mcp'
   id:
     | '__root__'
     | '/'
@@ -145,9 +168,11 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/mcp/$projectId'
     | '/api/mcp/consent'
+    | '/api/mcp/'
     | '/.well-known/oauth-authorization-server/api/auth'
     | '/api/projects/$projectId/events'
     | '/.well-known/oauth-protected-resource/api/mcp/$projectId'
+    | '/.well-known/oauth-protected-resource/api/mcp/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,9 +183,11 @@ export interface RootRouteChildren {
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiMcpProjectIdRoute: typeof ApiMcpProjectIdRoute
   ApiMcpConsentRoute: typeof ApiMcpConsentRoute
+  ApiMcpIndexRoute: typeof ApiMcpIndexRoute
   DotwellKnownOauthAuthorizationServerApiAuthRoute: typeof DotwellKnownOauthAuthorizationServerApiAuthRoute
   ApiProjectsProjectIdEventsRoute: typeof ApiProjectsProjectIdEventsRoute
   DotwellKnownOauthProtectedResourceApiMcpProjectIdRoute: typeof DotwellKnownOauthProtectedResourceApiMcpProjectIdRoute
+  DotwellKnownOauthProtectedResourceApiMcpIndexRoute: typeof DotwellKnownOauthProtectedResourceApiMcpIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -200,6 +227,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/mcp/': {
+      id: '/api/mcp/'
+      path: '/api/mcp'
+      fullPath: '/api/mcp/'
+      preLoaderRoute: typeof ApiMcpIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/mcp/$projectId': {
       id: '/api/mcp/$projectId'
       path: '/api/mcp/$projectId'
@@ -228,6 +262,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiProjectsProjectIdEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/.well-known/oauth-protected-resource/api/mcp/': {
+      id: '/.well-known/oauth-protected-resource/api/mcp/'
+      path: '/.well-known/oauth-protected-resource/api/mcp'
+      fullPath: '/.well-known/oauth-protected-resource/api/mcp/'
+      preLoaderRoute: typeof DotwellKnownOauthProtectedResourceApiMcpIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/.well-known/oauth-protected-resource/api/mcp/$projectId': {
       id: '/.well-known/oauth-protected-resource/api/mcp/$projectId'
       path: '/.well-known/oauth-protected-resource/api/mcp/$projectId'
@@ -246,11 +287,14 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiMcpProjectIdRoute: ApiMcpProjectIdRoute,
   ApiMcpConsentRoute: ApiMcpConsentRoute,
+  ApiMcpIndexRoute: ApiMcpIndexRoute,
   DotwellKnownOauthAuthorizationServerApiAuthRoute:
     DotwellKnownOauthAuthorizationServerApiAuthRoute,
   ApiProjectsProjectIdEventsRoute: ApiProjectsProjectIdEventsRoute,
   DotwellKnownOauthProtectedResourceApiMcpProjectIdRoute:
     DotwellKnownOauthProtectedResourceApiMcpProjectIdRoute,
+  DotwellKnownOauthProtectedResourceApiMcpIndexRoute:
+    DotwellKnownOauthProtectedResourceApiMcpIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

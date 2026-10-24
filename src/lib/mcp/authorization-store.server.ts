@@ -27,7 +27,7 @@ export async function prepareConnection(
   return { resource, canEdit: access.canEdit }
 }
 
-async function removeOAuthCredentials(
+export async function removeOAuthCredentials(
   executor: Executor,
   userId: string,
   clientId: string,

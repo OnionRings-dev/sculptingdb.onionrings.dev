@@ -6,11 +6,22 @@ import { auth, db, requireUser } from "@/lib/auth/auth.server"
 import { projectAccess } from "./access.server"
 import {
   authorizeProject,
-  connectionStatus,
-  prepareConnection,
   revokeAuthorization,
 } from "./authorization-store.server"
-import { MCP_SCOPES, projectMcpResource, resourceProjectId } from "./config"
+import {
+  MCP_SCOPES,
+  appMcpResource,
+  projectMcpResource,
+  resourceProjectId,
+} from "./config"
+
+import {
+  authorizeConnection,
+  disconnectClient,
+  prepareAppConnection,
+  projectConnectionStatus,
+  setClientProjectAccess,
+} from "./connection-store.server"
 
 const requestSchema = z.object({ projectId: z.uuid() })
 const oauthQuerySchema = z.object({ oauthQuery: z.string().min(1).max(16_000) })
@@ -20,24 +31,17 @@ export const getMcpConnection = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = await requireUser(getRequestHeaders())
     const origin = new URL(auth.options.baseURL).origin
-    const prepared = await prepareConnection(
-      db,
-      user.id,
-      data.projectId,
-      origin
-    )
-    return prepared
-      ? {
-          ...prepared,
-          status: await connectionStatus(db, user.id, data.projectId),
-        }
-      : null
+    if (!(await projectAccess(db, user.id, data.projectId))) return null
+    return {
+      resource: await prepareAppConnection(db, origin),
+      status: await projectConnectionStatus(db, user.id, data.projectId),
+    }
   })
 export const getMcpStatus = createServerFn({ method: "GET" })
   .validator((data: unknown) => requestSchema.parse(data))
   .handler(async ({ data }) => {
     const user = await requireUser(getRequestHeaders())
-    return connectionStatus(db, user.id, data.projectId)
+    return projectConnectionStatus(db, user.id, data.projectId)
   })
 export const disconnectMcp = createServerFn({ method: "POST" })
   .validator((data: unknown) =>
@@ -54,6 +58,36 @@ export const disconnectMcp = createServerFn({ method: "POST" })
     )
   })
 
+export const setMcpProjectAccess = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    requestSchema
+      .extend({ connectionId: z.uuid(), enabled: z.boolean() })
+      .parse(data)
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser(getRequestHeaders())
+    return setClientProjectAccess(
+      db,
+      user.id,
+      data.projectId,
+      data.connectionId,
+      data.enabled
+    )
+  })
+export const disconnectMcpClient = createServerFn({ method: "POST" })
+  .validator((data: unknown) =>
+    z.object({ connectionId: z.uuid() }).parse(data)
+  )
+  .handler(async ({ data }) => {
+    const user = await requireUser(getRequestHeaders())
+    return disconnectClient(
+      db,
+      user.id,
+      data.connectionId,
+      new URL(auth.options.baseURL).origin
+    )
+  })
+
 async function consentContext(oauthQuery: string) {
   const headers = getRequestHeaders()
   const user = await requireUser(headers)
@@ -63,12 +97,15 @@ async function consentContext(oauthQuery: string) {
   const query = new URLSearchParams(oauthQuery)
   const resources = query.getAll("resource")
   const origin = new URL(auth.options.baseURL).origin
+  const appConnection =
+    resources.length === 1 && resources[0] === appMcpResource(origin)
   const projectId =
     resources.length === 1 ? resourceProjectId(origin, resources[0]) : null
   const clientId = query.get("client_id")
-  if (!projectId || !clientId) throw new Error("A single project is required")
-  const access = await projectAccess(db, user.id, projectId)
-  if (!access) throw new Error("Project unavailable")
+  if ((!appConnection && !projectId) || !clientId)
+    throw new Error("Invalid MCP resource")
+  const access = projectId ? await projectAccess(db, user.id, projectId) : null
+  if (projectId && !access) throw new Error("Project unavailable")
   const client = await auth.api.getOAuthClientPublic({
     headers,
     query: { client_id: clientId },
@@ -81,7 +118,7 @@ async function consentContext(oauthQuery: string) {
   const scopes = requestedScopes.filter(
     (scope) =>
       MCP_SCOPES.some((allowed) => allowed === scope) &&
-      (scope !== "diagram:write" || access.canEdit)
+      (scope !== "diagram:write" || appConnection || access?.canEdit)
   )
   return {
     headers,
@@ -89,7 +126,8 @@ async function consentContext(oauthQuery: string) {
     projectId,
     clientId,
     clientName: client.client_name ?? "MCP client",
-    projectName: access.name,
+    projectName: access?.name ?? null,
+    appConnection,
     scopes,
     origin,
   }
@@ -103,7 +141,9 @@ export const getMcpConsent = createServerFn({ method: "GET" })
       projectName: context.projectName,
       clientName: context.clientName,
       canWrite: context.scopes.includes("diagram:write"),
-      resource: projectMcpResource(context.origin, context.projectId),
+      resource: context.projectId
+        ? projectMcpResource(context.origin, context.projectId)
+        : appMcpResource(context.origin),
     }
   })
 export const decideMcpConsent = createServerFn({ method: "POST" })
@@ -112,17 +152,24 @@ export const decideMcpConsent = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const context = await consentContext(data.oauthQuery)
-    if (
-      data.accept &&
-      !(await authorizeProject(
-        db,
-        context.user.id,
-        context.projectId,
-        context.clientId,
-        context.origin
-      ))
-    )
-      throw new Error("Project unavailable")
+    if (data.accept) {
+      const granted = context.appConnection
+        ? await authorizeConnection(
+            db,
+            context.user.id,
+            context.clientId,
+            context.origin
+          )
+        : context.projectId &&
+          (await authorizeProject(
+            db,
+            context.user.id,
+            context.projectId,
+            context.clientId,
+            context.origin
+          ))
+      if (!granted) throw new Error("Authorization unavailable")
+    }
     const response = await auth.handler(
       new Request(`${context.origin}/api/auth/oauth2/consent`, {
         method: "POST",

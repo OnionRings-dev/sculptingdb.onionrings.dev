@@ -138,14 +138,30 @@ or the lease expires. Renewal and release require the exact lease ID and
 project/user/client authorization, so a stale client cannot affect a successor.
 Connecting a client or listing its tools does not acquire a lease.
 
-`mcp_authorization` records explicit project/user/OAuth-client consent with a
-rotating key. Tokens contain its ID/key and the single project resource as their
-audience. Each request checks the current grant, client and membership; each tool
-checks them again inside its transaction. Revocation rotates the key, removes
-matching OAuth credentials and releases the lease. Membership removal revokes all
-that user's project grants. Role changes apply on the next operation; an existing
-lease can continue reading after an Edit-to-View downgrade. Tokens with read-only
-scope cannot gain write access through a later role upgrade without new consent.
+`mcp_connection` records app-level user/OAuth-client consent, unique per user
+and client, with a rotating key and revocation timestamp. App JWTs carry its
+ID/key and the single `/api/mcp` audience. `mcp_authorization` records the
+separate project/user/client grants toggled in the editor. A client is initially
+connected with zero enabled projects; enabling another project reuses the same
+app token. Project tools require `projectId` explicitly and check both levels
+of authorization and current membership. The account never stores a global
+active project.
+
+Disabling a project grant rotates its key and removes that client's project
+lease. Global client disconnect rotates its connection key, revokes all its
+project grants, removes their leases, and deletes matching OAuth credentials in
+one transaction. Project operations hold a shared connection-row lock during
+their transaction, serializing against disconnect. Users manage their own
+connections; project owners can disable collaborators' project grants but
+cannot enable another user's client or disconnect it from other projects.
+Membership removal revokes only that user's grants for the affected project.
+Role changes apply on the next operation. A read-only token cannot gain write
+scope through a later membership upgrade without new consent.
+
+The old project endpoints and project-bound JWTs remain supported, without
+converting them to account-level access. They use their original grant IDs/keys
+and are listed separately for manual revocation. The schema intentionally does
+not identify or merge installations by a client-supplied display name.
 
 `mcp_mutation` records a request UUID, normalized payload hash and result revision
 for each project/authorization. Exact mutation retries return the original
@@ -156,7 +172,8 @@ is deleted; a new lease does not erase them.
 Better Auth's JWT and OAuth Provider plugins use `jwks`, `oauth_client`,
 `oauth_resource`, `oauth_client_resource`, `oauth_refresh_token`,
 `oauth_access_token`, `oauth_consent` and `oauth_client_assertion`. The application
-prepares a project resource when its connection dialog opens. OAuth resource
+prepares the shared resource when its connection dialog or OAuth discovery is
+opened. Legacy project-resource records remain valid for existing connections. OAuth resource
 catalog records are independent of project rows; deleting a project revokes
 access through the project/grant checks, but does not purge its catalog record.
 
@@ -165,7 +182,9 @@ access through the project/grant checks, but does not purge its catalog record.
 `0001_application_model.sql` is additive: it adds three enums and ten application
 tables without altering Better Auth's tables or copying user data.
 `0002_foamy_shaman.sql` adds OAuth storage, project grants and mutation receipts
-and extends leases with an authorization reference. Generate future migrations from `src/db/schema.ts` using `bun run db:generate` and apply
+and extends leases with an authorization reference.
+`0003_zippy_cable.sql` adds account-level MCP connections without changing or
+merging existing project grants. Generate future migrations from `src/db/schema.ts` using `bun run db:generate` and apply
 them with `bun run db:migrate`.
 
 `tests/app-schema.integration.test.ts` exercises the actual migrations and
