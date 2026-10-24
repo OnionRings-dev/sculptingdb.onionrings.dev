@@ -1,10 +1,31 @@
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
+import {
+  HeadContent,
+  Scripts,
+  createRootRoute,
+  redirect,
+  useRouterState,
+} from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 
 import appCss from "../styles.css?url"
+import { getUser } from "@/lib/auth/session.functions"
 
 export const Route = createRootRoute({
+  beforeLoad: async ({ location }) => {
+    const user = await getUser()
+    if (!user && location.pathname !== "/login") {
+      throw redirect({
+        to: "/login",
+        search: { error: undefined },
+        replace: true,
+      })
+    }
+    if (user && location.pathname === "/login") {
+      throw redirect({ to: "/", replace: true })
+    }
+    return { user }
+  },
   head: () => ({
     meta: [
       {
@@ -15,7 +36,7 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1",
       },
       {
-        title: "TanStack Start Starter",
+        title: "Sculpting DB",
       },
     ],
     links: [
@@ -35,6 +56,10 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const isLoginPage = useRouterState({
+    select: (state) => state.location.pathname === "/login",
+  })
+
   return (
     <html lang="en" className="geist geist-mono">
       <head>
@@ -42,17 +67,19 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <TanStackDevtools
-          config={{
-            position: "bottom-right",
-          }}
-          plugins={[
-            {
-              name: "Tanstack Router",
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-          ]}
-        />
+        {import.meta.env.DEV && !isLoginPage && (
+          <TanStackDevtools
+            config={{
+              position: "bottom-right",
+            }}
+            plugins={[
+              {
+                name: "Tanstack Router",
+                render: <TanStackRouterDevtoolsPanel />,
+              },
+            ]}
+          />
+        )}
         <Scripts />
       </body>
     </html>

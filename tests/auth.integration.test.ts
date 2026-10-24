@@ -1,0 +1,428 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { randomBytes } from "node:crypto"
+import { drizzle } from "drizzle-orm/node-postgres"
+import { migrate } from "drizzle-orm/node-postgres/migrator"
+import { Pool } from "pg"
+import { exportJWK, generateKeyPair, SignJWT } from "jose"
+import { createAppAuth } from "../src/lib/auth/config.server"
+import { ONIONRINGS_ISSUER } from "../src/lib/auth/env.server"
+import * as schema from "../src/db/schema"
+
+const databaseURL = process.env.TEST_DATABASE_URL
+const baseURL = "http://localhost:3000"
+const clientId = "integration-test-client"
+const clientSecret = randomBytes(32).toString("hex")
+const originalFetch = globalThis.fetch
+
+type Authorization = {
+  nonce: string
+  challenge: string
+  subject: string
+  email: string
+  emailVerified?: boolean
+  invalidNonce?: boolean
+  invalidSignature?: boolean
+}
+
+describe.skipIf(!databaseURL)(
+  "Better Auth with PostgreSQL and a simulated OIDC provider",
+  () => {
+    const pool = new Pool({ connectionString: databaseURL })
+    const db = drizzle(pool, { schema })
+    let auth: ReturnType<typeof createAppAuth>
+    let keys: Awaited<ReturnType<typeof generateKeyPair>>
+    let jwk: Awaited<ReturnType<typeof exportJWK>>
+    let discoveryIssuer = ONIONRINGS_ISSUER
+    let discoveryAvailable = true
+    const authorizations = new Map<string, Authorization>()
+    let exchanges = 0
+
+    async function mockFetch(
+      input: string | URL | Request,
+      init?: RequestInit
+    ): Promise<Response> {
+      const request = new Request(input, init)
+      const url = new URL(request.url)
+      if (url.origin !== "https://auth.onionrings.dev")
+        throw new Error("Unexpected network request in auth test")
+
+      if (url.pathname.endsWith("/.well-known/openid-configuration")) {
+        if (!discoveryAvailable)
+          return Response.json({ error: "unavailable" }, { status: 503 })
+        return Response.json({
+          issuer: discoveryIssuer,
+          authorization_endpoint: `${ONIONRINGS_ISSUER}/oauth2/authorize`,
+          token_endpoint: `${ONIONRINGS_ISSUER}/oauth2/token`,
+          userinfo_endpoint: `${ONIONRINGS_ISSUER}/oauth2/userinfo`,
+          jwks_uri: `${ONIONRINGS_ISSUER}/jwks`,
+          end_session_endpoint: `${ONIONRINGS_ISSUER}/oauth2/end-session`,
+          id_token_signing_alg_values_supported: ["EdDSA"],
+        })
+      }
+      if (url.pathname.endsWith("/jwks")) return Response.json({ keys: [jwk] })
+      if (!url.pathname.endsWith("/oauth2/token"))
+        throw new Error("Unexpected OIDC endpoint")
+
+      const body = new URLSearchParams(await request.text())
+      const authorization = authorizations.get(body.get("code") ?? "")
+      if (!authorization)
+        return Response.json({ error: "invalid_grant" }, { status: 400 })
+      authorizations.delete(body.get("code")!)
+      exchanges++
+
+      expect(request.headers.get("authorization")).toBe(
+        `Basic ${btoa(`${clientId}:${clientSecret}`)}`
+      )
+      expect(body.get("client_secret")).toBeNull()
+      expect(body.get("grant_type")).toBe("authorization_code")
+      expect(body.get("redirect_uri")).toBe(
+        `${baseURL}/api/auth/callback/onionrings`
+      )
+      const verifier = body.get("code_verifier")!
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode(verifier)
+      )
+      expect(Buffer.from(digest).toString("base64url")).toBe(
+        authorization.challenge
+      )
+
+      const signingKey = authorization.invalidSignature
+        ? (await generateKeyPair("EdDSA")).privateKey
+        : keys.privateKey
+      const idToken = await new SignJWT({
+        email: authorization.email,
+        email_verified: authorization.emailVerified ?? true,
+        nonce: authorization.invalidNonce ? "wrong-nonce" : authorization.nonce,
+        // Missing name/image are valid optional profile attributes.
+      })
+        .setProtectedHeader({ alg: "EdDSA", kid: "test-key" })
+        .setIssuer(ONIONRINGS_ISSUER)
+        .setAudience(clientId)
+        .setSubject(authorization.subject)
+        .setIssuedAt()
+        .setExpirationTime("5m")
+        .sign(signingKey)
+
+      return Response.json({
+        access_token: "test-access-token",
+        token_type: "Bearer",
+        expires_in: 3600,
+        id_token: idToken,
+      })
+    }
+
+    function createAuth() {
+      return createAppAuth(
+        {
+          baseURL,
+          secret: "integration-test-app-secret-at-least-32-characters",
+          issuer: ONIONRINGS_ISSUER,
+          clientId,
+          clientSecret,
+          databaseURL: databaseURL!,
+          production: false,
+        },
+        db
+      )
+    }
+
+    function cookies(response: Response) {
+      return response.headers
+        .getSetCookie()
+        .map((cookie) => cookie.split(";")[0])
+        .join("; ")
+    }
+
+    async function begin() {
+      const response = await auth.handler(
+        new Request(`${baseURL}/api/auth/sign-in/social`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: baseURL },
+          body: JSON.stringify({
+            provider: "onionrings",
+            callbackURL: "/",
+            errorCallbackURL: "/login",
+          }),
+        })
+      )
+      expect(response.status).toBe(200)
+      const { url } = (await response.json()) as { url: string }
+      const authorizationURL = new URL(url)
+      expect(authorizationURL.origin + authorizationURL.pathname).toBe(
+        `${ONIONRINGS_ISSUER}/oauth2/authorize`
+      )
+      expect(
+        authorizationURL.searchParams.get("scope")?.split(" ").sort()
+      ).toEqual(["email", "openid", "profile"])
+      expect(authorizationURL.searchParams.get("code_challenge_method")).toBe(
+        "S256"
+      )
+      expect(authorizationURL.searchParams.get("nonce")).toBeTruthy()
+      return { authorizationURL, cookie: cookies(response) }
+    }
+
+    async function complete(
+      subject: string,
+      email: string,
+      options: Partial<Authorization> = {}
+    ) {
+      const { authorizationURL, cookie } = await begin()
+      const code = randomBytes(16).toString("hex")
+      authorizations.set(code, {
+        nonce: authorizationURL.searchParams.get("nonce")!,
+        challenge: authorizationURL.searchParams.get("code_challenge")!,
+        subject,
+        email,
+        ...options,
+      })
+      const url = new URL(`${baseURL}/api/auth/callback/onionrings`)
+      url.searchParams.set("state", authorizationURL.searchParams.get("state")!)
+      url.searchParams.set("code", code)
+      url.searchParams.set("iss", ONIONRINGS_ISSUER)
+      return auth.handler(new Request(url, { headers: { Cookie: cookie } }))
+    }
+
+    beforeAll(async () => {
+      if (!new URL(databaseURL!).pathname.endsWith("_test"))
+        throw new Error(
+          "TEST_DATABASE_URL must point to a disposable database ending in _test"
+        )
+      await migrate(db, { migrationsFolder: "./drizzle" })
+      await pool.query(
+        'TRUNCATE "verification", "session", "account", "user" CASCADE'
+      )
+      keys = await generateKeyPair("EdDSA", { extractable: true })
+      jwk = {
+        ...(await exportJWK(keys.publicKey)),
+        kid: "test-key",
+        alg: "EdDSA",
+        use: "sig",
+      }
+      globalThis.fetch = mockFetch as typeof fetch
+      auth = createAuth()
+      await auth.$context
+    })
+
+    afterAll(async () => {
+      globalThis.fetch = originalFetch
+      if (databaseURL && new URL(databaseURL).pathname.endsWith("_test")) {
+        await pool.query(
+          'TRUNCATE "verification", "session", "account", "user" CASCADE'
+        )
+      }
+      await pool.end()
+    })
+
+    test("anonymous requests have no application session", async () => {
+      expect(await auth.api.getSession({ headers: new Headers() })).toBeNull()
+    })
+
+    test("first login creates a local account, keeps tokens server-side and logs out locally", async () => {
+      const response = await complete("subject-one", "first@example.com")
+      expect(response.status).toBe(302)
+      expect(new URL(response.headers.get("location")!, baseURL).pathname).toBe(
+        "/"
+      )
+      const cookie = cookies(response)
+      const headers = new Headers({ Cookie: cookie })
+      const session = await auth.api.getSession({ headers })
+      expect(session?.user.email).toBe("first@example.com")
+      expect(session?.user.emailVerified).toBe(true)
+      const [account] = await db.select().from(schema.account)
+      expect(account.accountId).toBe("subject-one")
+      expect(account.providerId).toBe("onionrings")
+      expect(account.accessToken).not.toBe("test-access-token")
+      expect(cookie).not.toContain("test-access-token")
+      const sessionCookie = response.headers
+        .getSetCookie()
+        .find((value) => value.includes("session_token"))!
+      expect(sessionCookie).toContain("HttpOnly")
+      expect(sessionCookie).toContain("SameSite=Lax")
+
+      const logout = await auth.handler(
+        new Request(`${baseURL}/api/auth/sign-out`, {
+          method: "POST",
+          headers: {
+            Cookie: cookie,
+            Origin: baseURL,
+            "Content-Type": "application/json",
+          },
+          body: "{}",
+        })
+      )
+      expect(logout.status).toBe(200)
+      expect(logout.headers.get("location")).toBeNull()
+      expect(await auth.api.getSession({ headers })).toBeNull()
+    })
+
+    test("the subject recognizes returning users even when the email changes", async () => {
+      const response = await complete("subject-one", "renamed@example.com")
+      expect(new URL(response.headers.get("location")!, baseURL).pathname).toBe(
+        "/"
+      )
+      expect(await db.select().from(schema.user)).toHaveLength(1)
+      expect(await db.select().from(schema.account)).toHaveLength(1)
+    })
+
+    test("a matching email never implicitly links a different external subject", async () => {
+      const response = await complete("different-subject", "first@example.com")
+      expect(new URL(response.headers.get("location")!, baseURL).pathname).toBe(
+        "/login"
+      )
+      expect(await db.select().from(schema.account)).toHaveLength(1)
+      expect(cookies(response)).not.toContain("session_token")
+    })
+
+    test("preserves the provider's unverified-email attribute", async () => {
+      const response = await complete(
+        "unverified-subject",
+        "unverified@example.com",
+        { emailVerified: false }
+      )
+      const session = await auth.api.getSession({
+        headers: new Headers({ Cookie: cookies(response) }),
+      })
+      expect(session?.user.emailVerified).toBe(false)
+    })
+
+    test("rejects forged signatures and incorrect nonce without creating accounts", async () => {
+      const accountsBefore = await db.select().from(schema.account)
+      for (const options of [
+        { invalidSignature: true },
+        { invalidNonce: true },
+      ]) {
+        const response = await complete(
+          "invalid-subject",
+          "invalid@example.com",
+          options
+        )
+        expect(
+          new URL(response.headers.get("location")!, baseURL).pathname
+        ).toBe("/login")
+        expect(cookies(response)).not.toContain("session_token")
+      }
+      expect(await db.select().from(schema.account)).toHaveLength(
+        accountsBefore.length
+      )
+    })
+
+    test("consent denial returns to login without exchanging a code", async () => {
+      const { authorizationURL, cookie } = await begin()
+      const count = exchanges
+      const url = new URL(`${baseURL}/api/auth/callback/onionrings`)
+      url.searchParams.set("state", authorizationURL.searchParams.get("state")!)
+      url.searchParams.set("error", "access_denied")
+      const response = await auth.handler(
+        new Request(url, { headers: { Cookie: cookie } })
+      )
+      expect(new URL(response.headers.get("location")!, baseURL).pathname).toBe(
+        "/login"
+      )
+      expect(exchanges).toBe(count)
+    })
+
+    test("invalid and expired transactions fail without a token exchange", async () => {
+      const count = exchanges
+      const invalid = await auth.handler(
+        new Request(
+          `${baseURL}/api/auth/callback/onionrings?state=unknown&code=invalid`
+        )
+      )
+      expect(new URL(invalid.headers.get("location")!, baseURL).pathname).toBe(
+        "/login"
+      )
+
+      const { authorizationURL, cookie } = await begin()
+      await pool.query(
+        'UPDATE "verification" SET "expires_at" = NOW() - INTERVAL \'1 hour\''
+      )
+      const url = new URL(`${baseURL}/api/auth/callback/onionrings`)
+      url.searchParams.set("state", authorizationURL.searchParams.get("state")!)
+      url.searchParams.set("code", "expired")
+      const expired = await auth.handler(
+        new Request(url, { headers: { Cookie: cookie } })
+      )
+      expect(new URL(expired.headers.get("location")!, baseURL).pathname).toBe(
+        "/login"
+      )
+      expect(exchanges).toBe(count)
+    })
+
+    test("rejects external final destinations", async () => {
+      const response = await auth.handler(
+        new Request(`${baseURL}/api/auth/sign-in/social`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: baseURL },
+          body: JSON.stringify({
+            provider: "onionrings",
+            callbackURL: "https://attacker.example.com",
+          }),
+        })
+      )
+      expect(response.status).toBe(403)
+    })
+
+    test("rejects cross-origin requests with cookies and does not expose provider-token APIs", async () => {
+      const response = await auth.handler(
+        new Request(`${baseURL}/api/auth/sign-in/social`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://attacker.example.com",
+            "Sec-Fetch-Site": "cross-site",
+            Cookie: "better-auth.session_token=invalid-session",
+          },
+          body: JSON.stringify({ provider: "onionrings", callbackURL: "/" }),
+        })
+      )
+      expect(response.status).toBe(403)
+      for (const path of ["get-access-token", "refresh-token"]) {
+        const disabled = await auth.handler(
+          new Request(`${baseURL}/api/auth/${path}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Origin: baseURL },
+            body: "{}",
+          })
+        )
+        expect(disabled.status).toBe(404)
+      }
+    })
+
+    test("a discovery outage fails sign-in recoverably and a retry still pins the issuer", async () => {
+      discoveryAvailable = false
+      const unavailable = createAuth()
+      await unavailable.$context
+      const response = await unavailable.handler(
+        new Request(`${baseURL}/api/auth/sign-in/social`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: baseURL },
+          body: JSON.stringify({ provider: "onionrings", callbackURL: "/" }),
+        })
+      )
+      expect(response.status).toBeGreaterThanOrEqual(400)
+      discoveryAvailable = true
+      discoveryIssuer = "https://unexpected.example.com/api/auth"
+      const retried = await unavailable.handler(
+        new Request(`${baseURL}/api/auth/sign-in/social`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Origin: baseURL },
+          body: JSON.stringify({ provider: "onionrings", callbackURL: "/" }),
+        })
+      )
+      expect(retried.status).toBe(503)
+      discoveryIssuer = ONIONRINGS_ISSUER
+    })
+
+    test("rejects discovery metadata with a different issuer at initialization", async () => {
+      discoveryIssuer = "https://unexpected.example.com/api/auth"
+      try {
+        await expect(createAuth().$context).rejects.toThrow(
+          "Identity provider configuration is unavailable"
+        )
+      } finally {
+        discoveryIssuer = ONIONRINGS_ISSUER
+      }
+    })
+  }
+)
