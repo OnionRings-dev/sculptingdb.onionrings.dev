@@ -58,15 +58,16 @@ export function ProjectTitle({
         event.preventDefault()
         void save()
       }}
-      className="relative min-w-0 flex-1 @md/canvas:w-48 @md/canvas:flex-none"
+      className="relative min-w-0 flex-1 @md/canvas:max-w-48 @md/canvas:flex-none"
     >
-      <FieldGroup>
-        <Field data-invalid={!!error}>
+      <FieldGroup className="@container-normal">
+        <Field data-invalid={!!error} className="*:w-auto">
           <FieldLabel htmlFor="project-name" className="sr-only">
             Project name
           </FieldLabel>
           <Input
             id="project-name"
+            className="field-sizing-content max-w-full"
             value={draft}
             autoFocus
             maxLength={120}

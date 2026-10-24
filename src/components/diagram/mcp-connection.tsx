@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Link01Icon } from "@hugeicons/core-free-icons"
+import { McpServerIcon } from "@hugeicons/core-free-icons"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -59,7 +59,7 @@ export function McpConnection({ projectId }: { projectId: string }) {
         aria-label="MCP clients"
         title="MCP clients"
       >
-        <HugeiconsIcon icon={Link01Icon} strokeWidth={1.5} />
+        <HugeiconsIcon icon={McpServerIcon} strokeWidth={1.5} />
       </DialogTrigger>
       {open && (
         <ConnectionDialog

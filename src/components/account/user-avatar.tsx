@@ -4,9 +4,10 @@ import type { ProjectPerson } from "@/lib/projects/types"
 type UserAvatarProps = {
   user: Pick<ProjectPerson, "name" | "image">
   size?: "default" | "sm" | "lg"
+  className?: string
 }
 
-export function UserAvatar({ user, size }: UserAvatarProps) {
+export function UserAvatar({ user, size, className }: UserAvatarProps) {
   const initials =
     user.name
       .trim()
@@ -16,7 +17,7 @@ export function UserAvatar({ user, size }: UserAvatarProps) {
       .join("")
       .toLocaleUpperCase() || "?"
   return (
-    <Avatar size={size} title={user.name || "User"}>
+    <Avatar size={size} className={className} title={user.name || "User"}>
       {user.image && (
         <AvatarImage src={user.image} alt="" referrerPolicy="no-referrer" />
       )}

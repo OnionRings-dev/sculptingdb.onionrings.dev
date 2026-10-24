@@ -322,9 +322,7 @@ function EditorCanvas({
                 <ProjectSharing projectId={data.project.id} />
               </div>
             )}
-            <div className="diagram-toolbar rounded-full p-1">
-              <AccountMenu user={user} />
-            </div>
+            <AccountMenu user={user} />
           </div>
         </header>
         {preview && (

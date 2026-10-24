@@ -1,4 +1,4 @@
-import { createServerFn } from "@tanstack/react-start"
+import { createServerFn, createServerOnlyFn } from "@tanstack/react-start"
 import { getRequestHeaders } from "@tanstack/react-start/server"
 import { z } from "zod"
 import { verifyOAuthQueryParams } from "@better-auth/oauth-provider"
@@ -88,7 +88,7 @@ export const disconnectMcpClient = createServerFn({ method: "POST" })
     )
   })
 
-async function consentContext(oauthQuery: string) {
+const consentContext = createServerOnlyFn(async (oauthQuery: string) => {
   const headers = getRequestHeaders()
   const user = await requireUser(headers)
   const context = await auth.$context
@@ -131,7 +131,7 @@ async function consentContext(oauthQuery: string) {
     scopes,
     origin,
   }
-}
+})
 
 export const getMcpConsent = createServerFn({ method: "GET" })
   .validator((data: unknown) => oauthQuerySchema.parse(data))

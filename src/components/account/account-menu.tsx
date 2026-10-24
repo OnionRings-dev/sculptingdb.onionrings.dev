@@ -45,13 +45,17 @@ export function AccountMenu({ user }: { user: AccountUser }) {
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
-            <Button variant="ghost" size="icon" className="rounded-full" />
+            <Button
+              variant="ghost"
+              size="icon-lg"
+              className="size-8 rounded-full border-0 p-0"
+            />
           }
           aria-label="Account"
           disabled={pending}
           aria-busy={pending}
         >
-          <UserAvatar user={user} />
+          <UserAvatar user={user} size="lg" className="after:border-0" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={10} className="w-60">
           <DropdownMenuGroup>
