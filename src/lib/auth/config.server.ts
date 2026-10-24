@@ -5,6 +5,8 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { APIError, createAuthMiddleware } from "better-auth/api"
 import { genericOAuth } from "better-auth/plugins/generic-oauth"
 import { tanstackStartCookies } from "better-auth/tanstack-start"
+import { jwt } from "better-auth/plugins/jwt"
+import { projectOAuthProvider } from "@/lib/mcp/oauth-policy.server"
 import type { BetterAuthPlugin } from "better-auth"
 import type { NodePgDatabase } from "drizzle-orm/node-postgres"
 import type { AuthEnv } from "./env.server"
@@ -49,7 +51,7 @@ export function createAppAuth(
     secret: env.secret,
     database: drizzleAdapter(database, { provider: "pg", schema }),
     trustedOrigins: [env.baseURL],
-    disabledPaths: ["/get-access-token", "/refresh-token"],
+    disabledPaths: ["/get-access-token", "/refresh-token", "/token"],
     emailAndPassword: { enabled: false },
     account: {
       accountLinking: { enabled: false, disableImplicitLinking: true },
@@ -87,6 +89,8 @@ export function createAppAuth(
         ],
       }),
       trustedIssuer,
+      jwt({ jwt: { issuer: `${env.baseURL}/api/auth` } }),
+      projectOAuthProvider(database, env.baseURL),
       tanstackStartCookies(),
     ],
   })

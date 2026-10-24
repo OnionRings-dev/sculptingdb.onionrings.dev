@@ -88,6 +88,9 @@ in this repository. Never use `VITE_*` variables for these values.
 - The root route checks the server session on navigation and returns only user
   data to the router. App APIs under `/api/*` return **401** to anonymous callers;
   `/api/auth/*` stays public so Better Auth can handle login and callbacks.
+  `/api/mcp/<project UUID>` instead authenticates bearer tokens and returns an
+  OAuth discovery challenge without requiring a browser session; the signed
+  consent redirect is public but its destination requires login.
   New server functions that expose app data or mutate it must call
   `requireUser(getRequestHeaders())` from `src/lib/auth/auth.server.ts` before doing
   their work. Router guards do not authorize server functions.
@@ -172,16 +175,35 @@ covering it; it remains a separate column on small screens too.
 The server locks the diagram row and checks the client's expected revision.
 Stale writes return the latest graph rather than overwriting it. A client allows
 one save at a time, displays failures, and reverts an unsuccessful local move.
-Reload fetches the current authorized state. Automatic updates between browser
-sessions and MCP transport/authentication remain to implement.
+The open canvas receives authorized server-sent events and fetches changes from
+other browser sessions or MCP automatically. Refresh waits while dragging, saving
+or editing an entity/relationship form, and preserves history previews.
 
 Diagram commands and validation live in `src/lib/diagram/model.ts`; persistence,
 authorization, snapshots and restore live in `diagram-store.server.ts`. React Flow
-state is converted at the UI boundary. Future MCP tools can call the same service
-operations without depending on canvas internals. This initial implementation
+state is converted at the UI boundary. MCP tools call the same transactional
+service operations without depending on canvas internals. This initial implementation
 replaces the project's normalized graph within the transaction and bounds it to
 500 entities, 10,000 attributes and 5,000 relationships. Larger graphs and snapshot
 retention can be optimized later.
+
+## MCP
+
+Use **Connect MCP** beside the account menu inside a project. The dialog provides
+its endpoint, Codex commands and an OpenCode configuration, and lets users revoke
+client access. The owner can also revoke collaborators' client authorizations.
+
+The server supports MCP **2026-07-28** and stateless legacy initialization for
+clients such as Codex. Public OAuth clients register dynamically, use PKCE, and
+authorize one project through the existing login. View access stays read-only.
+One MCP lease per project expires after ten idle minutes; manual edits remain
+available and revision checks protect concurrent work. Agent changes are atomic
+and create history entries with origin `mcp`.
+
+Apply migration `0002_foamy_shaman.sql` using `bun run db:migrate` before starting.
+No additional identity-provider registration or secrets are required. See
+[MCP setup and behavior](docs/mcp.md) for client configuration, tool contracts,
+security boundaries and current limitations.
 
 ## Checks
 
@@ -224,7 +246,11 @@ no-op saves, grouped deletion, restore, conflicting concurrent writes, current
 permissions, invalid inputs, and transaction rollback on cross-project UUID
 collisions.
 
-Live verification still requires registered credentials: sign in with OnionRings,
+The MCP integration suite additionally checks both protocol paths, PKCE, code
+replay, refresh, project-bound tokens, atomic batches, mutation retries, manual
+conflicts, exclusive leases, permission changes, revocation and live events.
+
+Live identity-provider verification still requires registered credentials: sign in with OnionRings,
 complete consent, return to the app, confirm access to `/`, and log out. Also deny
 consent and confirm recovery on `/login`. Passing the simulated tests and compilation
 does not prove that the real client registration and selected IDP providers work.

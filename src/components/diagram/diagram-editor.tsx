@@ -23,6 +23,7 @@ import {
 import { AccountMenu } from "@/components/account/account-menu"
 import { ProjectTitle } from "@/components/projects/project-title"
 import { ProjectSharing } from "@/components/projects/project-sharing"
+import { McpConnection } from "./mcp-connection"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -103,11 +104,6 @@ function EditorCanvas({
   initialData: DiagramEditorData
   user: AccountUser
 }) {
-  const editor = useDiagramEditor(initialData)
-  const { data, nodes, edges, pending, preview, error } = editor
-  const flow = useReactFlow<EntityFlowNode, RelationshipFlowEdge>()
-  const surface = useRef<HTMLDivElement>(null)
-  const { resolvedTheme } = useTheme()
   const [historyOpen, setHistoryOpen] = useState(false)
   const [entityDraft, setEntityDraft] = useState<{
     entity: Entity
@@ -116,6 +112,14 @@ function EditorCanvas({
   } | null>(null)
   const [relationshipDraft, setRelationshipDraft] =
     useState<Relationship | null>(null)
+  const editor = useDiagramEditor(
+    initialData,
+    entityDraft !== null || relationshipDraft !== null
+  )
+  const { data, nodes, edges, pending, preview, error } = editor
+  const flow = useReactFlow<EntityFlowNode, RelationshipFlowEdge>()
+  const surface = useRef<HTMLDivElement>(null)
+  const { resolvedTheme } = useTheme()
   const snapshot = preview?.snapshot ?? data.snapshot
   const editable = data.canEdit && !preview && !pending
   const selectedNodes = nodes.filter((node) => node.selected)
@@ -310,6 +314,9 @@ function EditorCanvas({
             {pending && <Spinner className="mr-2" />}
           </div>
           <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
+            <div className="diagram-toolbar p-1">
+              <McpConnection projectId={data.project.id} />
+            </div>
             {data.canManageSharing && (
               <div className="diagram-toolbar p-1">
                 <ProjectSharing projectId={data.project.id} />

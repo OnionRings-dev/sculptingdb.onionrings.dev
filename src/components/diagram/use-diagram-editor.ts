@@ -1,4 +1,5 @@
-import { useRef, useState } from "react"
+import { useEffect, useEffectEvent, useRef, useState } from "react"
+import { z } from "zod"
 import { useEdgesState, useNodesState } from "@xyflow/react"
 import type { DiagramSnapshot } from "@/db/schema"
 import type { DiagramCommand, DiagramEditorData } from "@/lib/diagram/model"
@@ -12,7 +13,17 @@ import type { EntityFlowNode } from "./entity-node"
 import type { RelationshipFlowEdge } from "./relationship-edge"
 import { renameProject } from "@/lib/projects/project.functions"
 
-export function useDiagramEditor(initialData: DiagramEditorData) {
+const statusSchema = z.object({
+  revision: z.number().int().nonnegative(),
+  name: z.string(),
+  canEdit: z.boolean(),
+  canManageSharing: z.boolean(),
+})
+
+export function useDiagramEditor(
+  initialData: DiagramEditorData,
+  pauseLive = false
+) {
   const [data, setData] = useState(initialData)
   const current = useRef(initialData)
   const busy = useRef(false)
@@ -28,6 +39,81 @@ export function useDiagramEditor(initialData: DiagramEditorData) {
   const [edges, setEdges, onEdgesChange] = useEdgesState<RelationshipFlowEdge>(
     flowEdges(initialData.snapshot)
   )
+  const hint = useRef<z.infer<typeof statusSchema> | null>(null)
+  const syncing = useRef(false)
+  const syncGeneration = useRef(0)
+  const canSynchronize = useEffectEvent(
+    () => !busy.current && !pauseLive && !nodes.some((node) => node.dragging)
+  )
+  const applyRemote = useEffectEvent((latest: DiagramEditorData) => {
+    current.current = latest
+    setData(latest)
+    if (!preview) display(latest.snapshot)
+  })
+  const synchronize = useEffectEvent(async () => {
+    const status = hint.current
+    if (!status || syncing.current || !canSynchronize()) return
+    if (
+      status.revision === current.current.revision &&
+      status.name === current.current.project.name &&
+      status.canEdit === current.current.canEdit &&
+      status.canManageSharing === current.current.canManageSharing
+    ) {
+      hint.current = null
+      return
+    }
+    syncing.current = true
+    const generation = syncGeneration.current
+    const revision = current.current.revision
+    try {
+      const latest = await getDiagram({ data: current.current.project.id })
+      if (
+        generation !== syncGeneration.current ||
+        !canSynchronize() ||
+        current.current.revision !== revision
+      )
+        return
+      if (!latest) {
+        window.location.assign("/")
+        return
+      }
+      // History previews remain visible while the latest revision advances.
+      applyRemote(latest)
+      if (hint.current === status) hint.current = null
+    } catch {
+      /* A pending hint is retried without interrupting manual work. */
+    } finally {
+      syncing.current = false
+    }
+  })
+  useEffect(() => {
+    syncGeneration.current++
+    const source = new EventSource(
+      `/api/projects/${initialData.project.id}/events`
+    )
+    source.addEventListener("project", (event) => {
+      try {
+        const parsed = statusSchema.safeParse(
+          JSON.parse((event as MessageEvent<string>).data)
+        )
+        if (parsed.success) hint.current = parsed.data
+      } catch {
+        /* Ignore an invalid event; the next authorized event can refresh it. */
+      }
+    })
+    source.addEventListener("revoked", () => {
+      source.close()
+      window.location.assign("/")
+    })
+    const interval = setInterval(() => {
+      void synchronize()
+    }, 500)
+    return () => {
+      syncGeneration.current++
+      clearInterval(interval)
+      source.close()
+    }
+  }, [initialData.project.id])
 
   function display(snapshot: DiagramSnapshot) {
     setNodes((previous) => {

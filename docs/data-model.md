@@ -9,7 +9,8 @@ functions. `src/lib/diagram/diagram-store.server.ts` implements manual diagram
 edits, revision checks, snapshots and restoration. Project renaming and registered
 user sharing are implemented in the project services, including
 `src/lib/projects/sharing-store.server.ts`. Invitation delivery/acceptance for
-unregistered users and MCP connection handling remain deferred.
+unregistered users remains deferred. MCP connection handling lives in
+`src/lib/mcp/`; see [MCP setup and behavior](mcp.md).
 
 ## Workspaces and sharing
 
@@ -47,7 +48,8 @@ characters and returns at most ten matching accounts. Sharing and renaming do no
 change diagram revisions or snapshots.
 The owner can remove a membership through the same sharing service. The operation
 locks the project, deletes only the selected project/user membership and any MCP
-lease held by that user on that project in one transaction. It preserves the
+lease held by that user on that project in one transaction. It also revokes
+their MCP authorizations, so re-inviting the account requires a new consent. It preserves the
 user's account, other memberships and revision authorship. Subsequent reads,
 writes and history requests check access again; the owner cannot be removed.
 
@@ -74,7 +76,7 @@ Its `revision` starts at zero for the initial empty state.
   Defaults are model text and must never be executed by the application.
   Sort attributes by `sortOrder`, then `id` to break ties.
 - `diagram_relationship` connects two entities with cardinality at each endpoint:
-  `zero_or_one` (0..1), `one` (1), `zero_or_many` (0..*), or `one_or_many` (1..*).
+  `zero_or_one` (0..1), `one` (1), `zero_or_many` (0.._), or `one_or_many` (1.._).
   Self-relations, several relations between the same entities, and many-to-many
   relations are allowed. Composite foreign keys ensure both endpoints belong to
   the same project. These are conceptual entity relations; attribute-level foreign
@@ -129,20 +131,41 @@ lease identifier, acquisition time, and expiry. This models one connected MCP
 client per project; it does not restrict how many users can view the web app or
 prevent concurrent manual edits. The same user may connect to different projects.
 
-The future MCP service must acquire or replace an expired lease atomically,
-renew it while connected, and release it on disconnect. Renewal/release must
-match `leaseId`, so a stale client cannot affect a successor. Expiry alone does
-not delete a row. Check current project access and the matching, unexpired lease
-on each MCP operation; a lease is not an authorization grant. Authentication,
-credentials, transport, heartbeat interval, and takeover behavior are deferred.
-Membership removal or permission changes must also revoke the affected lease
-in the service; deleting a membership alone does not cascade to its user's lease.
+The MCP service acquires/replaces leases under diagram/project row locks. A lease
+lasts ten minutes and renews on successful operations. A new client cannot take
+an active lease; the holder calls `release_project`, the owner revokes its grant,
+or the lease expires. Renewal and release require the exact lease ID and
+project/user/client authorization, so a stale client cannot affect a successor.
+Connecting a client or listing its tools does not acquire a lease.
+
+`mcp_authorization` records explicit project/user/OAuth-client consent with a
+rotating key. Tokens contain its ID/key and the single project resource as their
+audience. Each request checks the current grant, client and membership; each tool
+checks them again inside its transaction. Revocation rotates the key, removes
+matching OAuth credentials and releases the lease. Membership removal revokes all
+that user's project grants. Role changes apply on the next operation; an existing
+lease can continue reading after an Edit-to-View downgrade. Tokens with read-only
+scope cannot gain write access through a later role upgrade without new consent.
+
+`mcp_mutation` records a request UUID, normalized payload hash and result revision
+for each project/authorization. Exact mutation retries return the original
+revision; reusing the UUID with different arguments fails. The mutation, snapshot
+and receipt commit together. Receipts are retained until the project or grant
+is deleted; a new lease does not erase them.
+
+Better Auth's JWT and OAuth Provider plugins use `jwks`, `oauth_client`,
+`oauth_resource`, `oauth_client_resource`, `oauth_refresh_token`,
+`oauth_access_token`, `oauth_consent` and `oauth_client_assertion`. The application
+prepares a project resource when its connection dialog opens. OAuth resource
+catalog records are independent of project rows; deleting a project revokes
+access through the project/grant checks, but does not purge its catalog record.
 
 ## Migrations and verification
 
 `0001_application_model.sql` is additive: it adds three enums and ten application
-tables without altering Better Auth's tables or copying user data. Generate
-future migrations from `src/db/schema.ts` using `bun run db:generate` and apply
+tables without altering Better Auth's tables or copying user data.
+`0002_foamy_shaman.sql` adds OAuth storage, project grants and mutation receipts
+and extends leases with an authorization reference. Generate future migrations from `src/db/schema.ts` using `bun run db:generate` and apply
 them with `bun run db:migrate`.
 
 `tests/app-schema.integration.test.ts` exercises the actual migrations and

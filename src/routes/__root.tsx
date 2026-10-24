@@ -16,6 +16,10 @@ export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
     const user = await getUser()
     if (!user && location.pathname !== "/login") {
+      if (location.pathname === "/mcp/consent")
+        throw redirect({
+          href: `/login?${new URLSearchParams(location.searchStr).get("oauth_query") ?? location.searchStr.slice(1)}`,
+        })
       throw redirect({
         to: "/login",
         search: { error: undefined },
@@ -60,6 +64,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   const hideDevtools = useRouterState({
     select: (state) =>
       state.location.pathname === "/login" ||
+      state.location.pathname.startsWith("/mcp/") ||
       state.location.pathname.startsWith("/projects/"),
   })
 

@@ -17,7 +17,10 @@ import type {
 import * as schema from "@/db/schema"
 
 type Database = NodePgDatabase<typeof schema>
-type Executor = Pick<Database, "select" | "insert" | "delete" | "update">
+export type DiagramExecutor = Pick<
+  Database,
+  "select" | "insert" | "delete" | "update"
+>
 const {
   project,
   workspace,
@@ -30,7 +33,11 @@ const {
   user,
 } = schema
 
-async function access(executor: Executor, userId: string, projectId: string) {
+async function access(
+  executor: DiagramExecutor,
+  userId: string,
+  projectId: string
+) {
   const rows = await executor
     .select({
       id: project.id,
@@ -61,7 +68,7 @@ async function access(executor: Executor, userId: string, projectId: string) {
 }
 
 async function readSnapshot(
-  executor: Executor,
+  executor: DiagramExecutor,
   projectId: string
 ): Promise<DiagramSnapshot> {
   const entities = await executor
@@ -93,8 +100,8 @@ async function readSnapshot(
   })
 }
 
-async function readEditor(
-  executor: Executor,
+export async function readEditor(
+  executor: DiagramExecutor,
   userId: string,
   projectId: string
 ): Promise<DiagramEditorData | null> {
@@ -170,7 +177,7 @@ export async function loadRevision(
 }
 
 async function replaceSnapshot(
-  executor: Executor,
+  executor: DiagramExecutor,
   projectId: string,
   snapshot: DiagramSnapshot
 ) {
@@ -199,80 +206,88 @@ export async function changeDiagram(
   userId: string,
   input: DiagramMutation
 ): Promise<MutationResult> {
+  return database.transaction((transaction) =>
+    changeDiagramTransaction(transaction, userId, input)
+  )
+}
+
+export async function changeDiagramTransaction(
+  transaction: DiagramExecutor,
+  userId: string,
+  input: DiagramMutation,
+  origin: "manual" | "mcp" = "manual"
+): Promise<MutationResult> {
   const { projectId, expectedRevision, command } = mutationSchema.parse(input)
-  return database.transaction(async (transaction): Promise<MutationResult> => {
-    if (!(await access(transaction, userId, projectId)))
-      return { ok: false, reason: "forbidden" }
-    await transaction
-      .select({ id: diagram.projectId })
-      .from(diagram)
-      .where(eq(diagram.projectId, projectId))
-      .for("update")
-    const current = await readEditor(transaction, userId, projectId)
-    if (!current?.canEdit) return { ok: false, reason: "forbidden" }
-    if (current.revision !== expectedRevision)
-      return { ok: false, reason: "conflict", data: current }
+  if (!(await access(transaction, userId, projectId)))
+    return { ok: false, reason: "forbidden" }
+  await transaction
+    .select({ id: diagram.projectId })
+    .from(diagram)
+    .where(eq(diagram.projectId, projectId))
+    .for("update")
+  const current = await readEditor(transaction, userId, projectId)
+  if (!current?.canEdit) return { ok: false, reason: "forbidden" }
+  if (current.revision !== expectedRevision)
+    return { ok: false, reason: "conflict", data: current }
 
-    let next: { snapshot: DiagramSnapshot; summary: string }
-    if (command.type === "restore") {
-      const rows = await transaction
-        .select({ snapshot: diagramRevision.snapshot })
-        .from(diagramRevision)
-        .where(
-          and(
-            eq(diagramRevision.projectId, projectId),
-            eq(diagramRevision.revision, command.revision)
-          )
+  let next: { snapshot: DiagramSnapshot; summary: string }
+  if (command.type === "restore") {
+    const rows = await transaction
+      .select({ snapshot: diagramRevision.snapshot })
+      .from(diagramRevision)
+      .where(
+        and(
+          eq(diagramRevision.projectId, projectId),
+          eq(diagramRevision.revision, command.revision)
         )
-        .limit(1)
-      const target = rows.at(0)
-      if (!target) throw new Error("Revision not found")
-      next = {
-        snapshot: canonicalSnapshot(snapshotSchema.parse(target.snapshot)),
-        summary: `Restored version ${command.revision}`,
-      }
-    } else {
-      next = applyCommand(current.snapshot, command)
-      if (JSON.stringify(next.snapshot) === JSON.stringify(current.snapshot))
-        return { ok: true, data: current }
+      )
+      .limit(1)
+    const target = rows.at(0)
+    if (!target) throw new Error("Revision not found")
+    next = {
+      snapshot: canonicalSnapshot(snapshotSchema.parse(target.snapshot)),
+      summary: `Restored version ${command.revision}`,
     }
+  } else {
+    next = applyCommand(current.snapshot, command)
+    if (JSON.stringify(next.snapshot) === JSON.stringify(current.snapshot))
+      return { ok: true, data: current }
+  }
 
-    let revision = current.revision
-    // Capture the pre-edit state on the first edit, including legacy diagrams.
-    // This makes the original empty state restorable without a revision-zero FK.
-    if (revision === 0) {
-      revision = 1
-      await transaction.insert(diagramRevision).values({
-        projectId,
-        revision,
-        actorUserId: userId,
-        origin: "manual",
-        summary: "Initial state",
-        snapshot: current.snapshot,
-      })
-    }
-    revision++
-    await replaceSnapshot(transaction, projectId, next.snapshot)
+  let revision = current.revision
+  // Capture the pre-edit state on the first edit, including legacy diagrams.
+  // This makes the original empty state restorable without a revision-zero FK.
+  if (revision === 0) {
+    revision = 1
     await transaction.insert(diagramRevision).values({
       projectId,
       revision,
       actorUserId: userId,
-      origin: command.type === "restore" ? "restore" : "manual",
-      restoredFromRevision:
-        command.type === "restore" ? command.revision : null,
-      summary: next.summary,
-      snapshot: next.snapshot,
+      origin,
+      summary: "Initial state",
+      snapshot: current.snapshot,
     })
-    await transaction
-      .update(diagram)
-      .set({ revision })
-      .where(eq(diagram.projectId, projectId))
-    await transaction
-      .update(project)
-      .set({ updatedAt: new Date() })
-      .where(eq(project.id, projectId))
-    const data = await readEditor(transaction, userId, projectId)
-    if (!data) throw new Error("Project no longer available")
-    return { ok: true, data }
+  }
+  revision++
+  await replaceSnapshot(transaction, projectId, next.snapshot)
+  await transaction.insert(diagramRevision).values({
+    projectId,
+    revision,
+    actorUserId: userId,
+    origin: command.type === "restore" ? "restore" : origin,
+    restoredFromRevision: command.type === "restore" ? command.revision : null,
+    summary: next.summary,
+    snapshot: next.snapshot,
   })
+  await transaction
+    .update(diagram)
+    .set({ revision })
+    .where(eq(diagram.projectId, projectId))
+  await transaction
+    .update(project)
+    .set({ updatedAt: new Date() })
+    .where(eq(project.id, projectId))
+  const data = await readEditor(transaction, userId, projectId)
+  if (!data) throw new Error("Project no longer available")
+  return { ok: true, data }
 }

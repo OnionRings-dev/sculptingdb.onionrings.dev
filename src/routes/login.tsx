@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { authClient } from "@/lib/auth/client"
+import { mcpLoginCallback } from "@/lib/mcp/login"
 
 export const Route = createFileRoute("/login")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -24,7 +25,7 @@ function LoginPage() {
     try {
       const result = await authClient.signIn.social({
         provider: "onionrings",
-        callbackURL: "/",
+        callbackURL: mcpLoginCallback(window.location.search),
         errorCallbackURL: "/login",
       })
       if (result.error || !result.data.url) {

@@ -7,6 +7,11 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { createAppAuth } from "../src/lib/auth/config.server"
 import { ONIONRINGS_ISSUER } from "../src/lib/auth/env.server"
 import * as schema from "../src/db/schema"
+import { eq } from "drizzle-orm"
+import { verifyOAuthQueryParams } from "@better-auth/oauth-provider"
+import { createUntitledProject } from "../src/lib/projects/project-store.server"
+import { prepareConnection } from "../src/lib/mcp/authorization-store.server"
+import { mcpLoginCallback } from "../src/lib/mcp/login"
 
 const databaseURL = process.env.TEST_DATABASE_URL
 const baseURL = "http://localhost:3000"
@@ -134,15 +139,16 @@ describe.skipIf(!databaseURL)(
         .join("; ")
     }
 
-    async function begin() {
+    async function begin(oauthQuery?: string) {
       const response = await auth.handler(
         new Request(`${baseURL}/api/auth/sign-in/social`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Origin: baseURL },
           body: JSON.stringify({
             provider: "onionrings",
-            callbackURL: "/",
+            callbackURL: mcpLoginCallback(oauthQuery ?? ""),
             errorCallbackURL: "/login",
+            oauth_query: oauthQuery,
           }),
         })
       )
@@ -165,9 +171,10 @@ describe.skipIf(!databaseURL)(
     async function complete(
       subject: string,
       email: string,
-      options: Partial<Authorization> = {}
+      options: Partial<Authorization> = {},
+      oauthQuery?: string
     ) {
-      const { authorizationURL, cookie } = await begin()
+      const { authorizationURL, cookie } = await begin(oauthQuery)
       const code = randomBytes(16).toString("hex")
       authorizations.set(code, {
         nonce: authorizationURL.searchParams.get("nonce")!,
@@ -422,6 +429,100 @@ describe.skipIf(!databaseURL)(
         )
       } finally {
         discoveryIssuer = ONIONRINGS_ISSUER
+      }
+    })
+
+    test("an anonymous MCP authorization resumes after the external identity-provider login", async () => {
+      const initial = await complete("mcp-owner", "mcp-owner@example.test")
+      const owner = await auth.api.getSession({
+        headers: new Headers({ Cookie: cookies(initial) }),
+      })
+      const project = await createUntitledProject(db, owner!.user.id)
+      const prepared = await prepareConnection(
+        db,
+        owner!.user.id,
+        project.id,
+        baseURL
+      )
+      const registered = await auth.handler(
+        new Request(`${baseURL}/api/auth/oauth2/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_name: "MCP login test",
+            redirect_uris: ["http://127.0.0.1:59999/callback"],
+            token_endpoint_auth_method: "none",
+            application_type: "native",
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+          }),
+        })
+      )
+      expect(registered.status).toBe(201)
+      const client = (await registered.json()) as { client_id: string }
+      try {
+        const query = new URLSearchParams({
+          client_id: client.client_id,
+          response_type: "code",
+          redirect_uri: "http://127.0.0.1:59999/callback",
+          scope: "diagram:read diagram:write offline_access",
+          resource: prepared!.resource,
+          state: "mcp-login-state",
+          code_challenge: randomBytes(32).toString("base64url"),
+          code_challenge_method: "S256",
+        })
+        const anonymous = await auth.handler(
+          new Request(`${baseURL}/api/auth/oauth2/authorize?${query}`, {
+            headers: { Accept: "text/html" },
+          })
+        )
+        const login = new URL(anonymous.headers.get("location")!, baseURL)
+        expect(login.pathname).toBe("/login")
+        const signed = login.search.slice(1)
+        expect(
+          await verifyOAuthQueryParams(
+            signed,
+            "integration-test-app-secret-at-least-32-characters"
+          )
+        ).toBe(true)
+        let response = await complete(
+          "mcp-owner",
+          "mcp-owner@example.test",
+          {},
+          signed
+        )
+        const cookie = cookies(response)
+        let destination = new URL(response.headers.get("location")!, baseURL)
+        for (
+          let i = 0;
+          i < 3 && destination.pathname.startsWith("/api/auth/");
+          i++
+        ) {
+          response = await auth.handler(
+            new Request(destination, {
+              headers: { Cookie: cookie, Accept: "text/html" },
+            })
+          )
+          destination = new URL(response.headers.get("location")!, baseURL)
+        }
+        expect(destination.pathname).toBe("/api/mcp/consent")
+        expect(destination.searchParams.get("resource")).toBe(
+          prepared!.resource
+        )
+        expect(destination.searchParams.get("state")).toBe("mcp-login-state")
+        expect(
+          await verifyOAuthQueryParams(
+            destination.search.slice(1),
+            "integration-test-app-secret-at-least-32-characters"
+          )
+        ).toBe(true)
+      } finally {
+        await db
+          .delete(schema.oauthClient)
+          .where(eq(schema.oauthClient.clientId, client.client_id))
+        await db
+          .delete(schema.oauthResource)
+          .where(eq(schema.oauthResource.identifier, prepared!.resource))
       }
     })
   }

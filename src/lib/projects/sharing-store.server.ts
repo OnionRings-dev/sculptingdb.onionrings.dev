@@ -207,6 +207,15 @@ export async function removeProjectMember(
       )
       .returning({ id: projectMember.userId })
     if (!removed.length) return false
+    await transaction
+      .update(schema.mcpAuthorization)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(schema.mcpAuthorization.projectId, data.projectId),
+          eq(schema.mcpAuthorization.userId, data.userId)
+        )
+      )
     // A revoked collaborator must not keep this project's single MCP slot occupied.
     await transaction
       .delete(schema.projectMcpLease)

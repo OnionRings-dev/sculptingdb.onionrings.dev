@@ -20,10 +20,12 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
+    "@better-auth/oauth-provider": "1.7.12",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
     "@hugeicons/core-free-icons": "^4.3.5",
     "@hugeicons/react": "^1.1.10",
+    "@modelcontextprotocol/server": "^2",
     "@tailwindcss/vite": "^4",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-query": "^5.104.5",
@@ -35,6 +37,7 @@
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "drizzle-orm": "^0.45.4",
+    "jose": "^6.2.13",
     "next-themes": "^0.4.6",
     "pg": "^8.23.1",
     "react": "^19.3.0",
@@ -45,6 +48,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/eslint-config": "latest",
     "@tanstack/router-cli": "^1.167.39",
@@ -56,7 +60,6 @@
     "@vitejs/plugin-react": "^6",
     "drizzle-kit": "^0.31.11",
     "eslint": "^10",
-    "jose": "^6.2.13",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "typescript": "^6.0.2",

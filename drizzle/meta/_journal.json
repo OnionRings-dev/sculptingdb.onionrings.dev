@@ -15,6 +15,13 @@
       "when": 1792844349592,
       "tag": "0001_application_model",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792855921136,
+      "tag": "0002_foamy_shaman",
+      "breakpoints": true
     }
   ]
 }

@@ -96,7 +96,7 @@ export const snapshotSchema = z
     }
   })
 
-export const commandSchema = z.discriminatedUnion("type", [
+export const editCommandSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("upsert_entity"),
     entity: entitySchema,
@@ -120,9 +120,17 @@ export const commandSchema = z.discriminatedUnion("type", [
     entityIds: z.array(z.uuid()).max(500),
     relationshipIds: z.array(z.uuid()).max(5000),
   }),
+])
+export const commandSchema = z.discriminatedUnion("type", [
+  ...editCommandSchema.options,
   z.object({
     type: z.literal("restore"),
     revision: z.number().int().positive(),
+  }),
+  z.object({
+    type: z.literal("batch"),
+    commands: z.array(editCommandSchema).min(1).max(100),
+    summary: z.string().trim().min(1).max(240),
   }),
 ])
 export type DiagramCommand = z.infer<typeof commandSchema>
@@ -160,6 +168,12 @@ export function applyCommand(
   let snapshot: DiagramSnapshot = { ...current }
   let summary: string
   switch (command.type) {
+    case "batch": {
+      for (const change of command.commands)
+        snapshot = applyCommand(snapshot, change).snapshot
+      summary = command.summary
+      break
+    }
     case "upsert_entity": {
       if (
         command.attributes.some(
