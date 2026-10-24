@@ -59,7 +59,7 @@ export function McpConnection({ projectId }: { projectId: string }) {
         aria-label="MCP clients"
         title="MCP clients"
       >
-        <HugeiconsIcon icon={McpServerIcon} strokeWidth={1.5} />
+        <HugeiconsIcon icon={McpServerIcon} strokeWidth={1.5} className="h-5 w-5" />
       </DialogTrigger>
       {open && (
         <ConnectionDialog

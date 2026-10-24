@@ -322,7 +322,9 @@ function EditorCanvas({
                 <ProjectSharing projectId={data.project.id} />
               </div>
             )}
-            <AccountMenu user={user} />
+            <div className="ml-2">
+              <AccountMenu user={user} />
+            </div>
           </div>
         </header>
         {preview && (

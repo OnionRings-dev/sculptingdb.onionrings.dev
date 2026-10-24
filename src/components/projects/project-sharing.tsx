@@ -91,7 +91,7 @@ export function ProjectSharing({ projectId }: { projectId: string }) {
         aria-label="Invite people"
         title="Invite people"
       >
-        <HugeiconsIcon icon={UserAdd01Icon} strokeWidth={1.5} />
+        <HugeiconsIcon icon={UserAdd01Icon} strokeWidth={1.5} className="h-5 w-5"/>
       </DialogTrigger>
       {open && (
         <SharingDialog
