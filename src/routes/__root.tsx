@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router"
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 import { TanStackDevtools } from "@tanstack/react-devtools"
+import { ThemeProvider } from "next-themes"
 
 import appCss from "../styles.css?url"
 import { getUser } from "@/lib/auth/session.functions"
@@ -61,12 +62,18 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   })
 
   return (
-    <html lang="en" className="geist geist-mono">
+    <html lang="en" className="geist geist-mono" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
       <body>
-        {children}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          disableTransitionOnChange
+        >
+          {children}
+        </ThemeProvider>
         {import.meta.env.DEV && !isLoginPage && (
           <TanStackDevtools
             config={{

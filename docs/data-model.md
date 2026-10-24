@@ -2,14 +2,18 @@
 
 The initial scope is entity/relationship modeling, one diagram per project,
 external AI clients connected through MCP, and direct edits. This document
-describes the schema; provisioning, authorization, invitations, history recording,
-restoration, and MCP connection handling still need application services.
+describes the schema. Authenticated project listing, read access checks, and
+atomic creation of an untitled project and its diagram are implemented in
+`src/lib/projects/project-store.server.ts`, exposed through authenticated server
+functions. Invitations, diagram edits, history recording, restoration, and MCP
+connection handling still need application services.
 
 ## Workspaces and sharing
 
 - `workspace` belongs to one Better Auth user. The unique owner constraint allows
-  at most one personal workspace per user. A future provisioning service must
-  create it for new and existing users; this migration does not create workspaces.
+  at most one personal workspace per user. Creating the first project provisions
+  it lazily, including for existing users. An upsert handles concurrent creation;
+  the migration itself does not create workspaces.
 - `project` belongs to a workspace. Its owner is the workspace owner, so there is
   no separate project owner column that can disagree with workspace ownership.
 - `project_member` gives a registered user `view` or `edit` access to a specific
@@ -39,7 +43,7 @@ their transaction if those are used for recent-project sorting.
 ## Diagram contents
 
 `diagram` uses `projectId` as its primary key, enforcing at most one diagram per
-project. The project creation service must create both records in one transaction.
+project. The project creation service creates both records in one transaction.
 Its `revision` starts at zero for the initial empty state.
 
 - `diagram_entity` contains a name, optional description, and canvas coordinates.

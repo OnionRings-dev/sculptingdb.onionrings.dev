@@ -150,3 +150,11 @@
     @apply font-sans;
     }
 }
+
+@layer components {
+  .project-preview {
+    background-color: var(--background);
+    background-image: radial-gradient(var(--border) 0.75px, transparent 0.75px);
+    background-size: 16px 16px;
+  }
+}

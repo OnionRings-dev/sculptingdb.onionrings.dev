@@ -110,6 +110,25 @@ snapshots, and an expiring MCP connection lease per project. See
 application behavior still to implement. Existing users are not automatically
 given workspaces by this migration.
 
+## Project flow
+
+The home page lists the current user's projects and projects shared with them,
+sorted by last update. Search filters names and descriptions locally. Cards show
+diagram thumbnails and other collaborators' avatars. **New** creates an untitled
+project and empty diagram in one transaction, then opens `/projects/$projectId`.
+The personal workspace is created on first project creation if necessary.
+
+Project pages currently show only their name and description, with navigation
+back to the list. Both `view` and `edit` members can open a shared project; private
+and missing projects produce the same not-found page. Every project server
+function authenticates the caller and reads access from the database. The account
+menu contains appearance preferences and local logout. Dark mode is the initial
+theme; users can choose light, dark, or their system preference.
+
+Owned project cards have an options menu with a confirmed delete action. Deletion
+checks ownership in the database and cascades to the project's contents; View/Edit
+members cannot delete a shared project. Cards remain still on hover.
+
 ## Checks
 
 ```sh
@@ -121,9 +140,9 @@ bun test
 ```
 
 Environment validation tests always run. PostgreSQL integration tests need an
-explicitly configured **disposable** database whose name ends in `_test`. Both
+explicitly configured **disposable** database whose name ends in `_test`. The
 suites apply migrations; the OAuth suite truncates auth tables with `CASCADE`
-before and after it runs. Neither suite falls back to `DATABASE_URL`.
+before and after it runs. They never fall back to `DATABASE_URL`.
 
 ```sh
 docker compose exec -T postgres createdb -U sculpting sculpting_db_test
@@ -141,6 +160,10 @@ Application schema tests also run against `TEST_DATABASE_URL`. They apply the
 migrations and roll back their fixtures after each test. They cover project
 isolation, sharing and invitation constraints, entity deletion, revision snapshots
 and restore references, cascade behavior, and exclusive MCP lease records.
+
+Project service tests cover concurrent workspace provisioning, project/diagram
+creation, read access and revocation, and isolation of collaborator/preview data.
+They remove only their own fixture users and cascading application records.
 
 Live verification still requires registered credentials: sign in with OnionRings,
 complete consent, return to the app, confirm access to `/`, and log out. Also deny
