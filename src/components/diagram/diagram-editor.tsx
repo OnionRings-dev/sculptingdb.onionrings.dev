@@ -282,6 +282,10 @@ function EditorCanvas({
           colorMode={resolvedTheme === "light" ? "light" : "dark"}
           minZoom={0.15}
           maxZoom={2}
+          panOnScroll
+          panOnScrollSpeed={1}
+          zoomOnScroll={false}
+          zoomOnPinch
           fitView
           fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
