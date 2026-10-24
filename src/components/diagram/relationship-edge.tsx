@@ -9,14 +9,33 @@ export type RelationshipFlowEdge = Edge<
 >
 const labelStyle = { fill: "var(--muted-foreground)", fontSize: 11 }
 const labelBgStyle = { fill: "var(--background)" }
+const selectedLabelStyle = {
+  ...labelStyle,
+  fill: "var(--diagram-edge-selected)",
+  fontWeight: 600,
+}
+const selectedLabelBgPadding: [number, number] = [12, 5]
 
 export function RelationshipEdge(props: EdgeProps<RelationshipFlowEdge>) {
   const [path, labelX, labelY] = getSmoothStepPath(props)
   const relationship = props.data?.relationship
   if (!relationship) return null
+  const edgeLabelStyle = props.selected ? selectedLabelStyle : labelStyle
   return (
     <>
-      <BaseEdge id={props.id} path={path} interactionWidth={24} />
+      {props.selected && (
+        <path
+          d={path}
+          className="diagram-edge-selection-halo"
+          aria-hidden="true"
+        />
+      )}
+      <BaseEdge
+        id={props.id}
+        path={path}
+        interactionWidth={24}
+        style={props.style}
+      />
       <EdgeText
         x={props.sourceX + 22}
         y={props.sourceY - 13}
@@ -25,8 +44,9 @@ export function RelationshipEdge(props: EdgeProps<RelationshipFlowEdge>) {
             ({ value }) => value === relationship.sourceCardinality
           )?.label
         }
-        labelStyle={labelStyle}
+        labelStyle={edgeLabelStyle}
         labelBgStyle={labelBgStyle}
+        labelBgPadding={props.selected ? selectedLabelBgPadding : undefined}
       />
       <EdgeText
         x={props.targetX - 22}
@@ -36,16 +56,18 @@ export function RelationshipEdge(props: EdgeProps<RelationshipFlowEdge>) {
             ({ value }) => value === relationship.targetCardinality
           )?.label
         }
-        labelStyle={labelStyle}
+        labelStyle={edgeLabelStyle}
         labelBgStyle={labelBgStyle}
+        labelBgPadding={props.selected ? selectedLabelBgPadding : undefined}
       />
       {relationship.label && (
         <EdgeText
           x={labelX}
           y={labelY - 12}
           label={relationship.label}
-          labelStyle={labelStyle}
+          labelStyle={edgeLabelStyle}
           labelBgStyle={labelBgStyle}
+          labelBgPadding={props.selected ? selectedLabelBgPadding : undefined}
         />
       )}
     </>

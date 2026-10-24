@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import {
   Background,
@@ -117,6 +117,13 @@ function EditorCanvas({
     entityDraft !== null || relationshipDraft !== null
   )
   const { data, nodes, edges, pending, preview, error } = editor
+  // A selected node also elevates its incident edges. Give selected edges their
+  // own layer so another connection cannot paint over a shared segment.
+  const renderedEdges = useMemo(
+    () =>
+      edges.map((edge) => (edge.selected ? { ...edge, zIndex: 2000 } : edge)),
+    [edges]
+  )
   const flow = useReactFlow<EntityFlowNode, RelationshipFlowEdge>()
   const surface = useRef<HTMLDivElement>(null)
   const { resolvedTheme } = useTheme()
@@ -221,7 +228,8 @@ function EditorCanvas({
       <div ref={surface} className="@container/canvas relative min-w-0 flex-1">
         <ReactFlow<EntityFlowNode, RelationshipFlowEdge>
           nodes={nodes}
-          edges={edges}
+          edges={renderedEdges}
+          elevateEdgesOnSelect
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={(changes) => {

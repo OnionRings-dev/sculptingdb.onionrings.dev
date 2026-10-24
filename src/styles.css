@@ -79,6 +79,7 @@
 }
 
 :root {
+    --diagram-edge-selected: oklch(0.50 0.20 255);
     --data-type-string: oklch(0.43 0.12 150);
     --data-type-number: oklch(0.48 0.17 255);
     --data-type-boolean: oklch(0.48 0.18 305);
@@ -124,6 +125,7 @@
 }
 
 .dark {
+    --diagram-edge-selected: oklch(0.78 0.13 250);
     --data-type-string: oklch(0.77 0.13 150);
     --data-type-number: oklch(0.78 0.12 250);
     --data-type-boolean: oklch(0.79 0.14 305);
@@ -209,7 +211,7 @@
 .diagram-editor .react-flow {
   --xy-background-color: var(--background);
   --xy-edge-stroke: var(--muted-foreground);
-  --xy-edge-stroke-selected: var(--foreground);
+  --xy-edge-stroke-selected: var(--diagram-edge-selected);
   --xy-edge-stroke-width: 1.25;
   --xy-handle-background-color: var(--muted-foreground);
   --xy-handle-border-color: var(--background);
@@ -218,4 +220,32 @@
 
 .diagram-editor .react-flow__attribution {
   color: var(--muted-foreground);
+}
+
+/* The inverted menu surface becomes mid-gray over a white canvas. These
+   brighter type tokens keep small labels readable on the same glass surface. */
+.diagram-node [data-slot="card"][data-variant="translucent"] {
+  --muted-foreground: oklch(0.90 0 0);
+  --data-type-string: oklch(0.92 0.09 150);
+  --data-type-number: oklch(0.92 0.07 250);
+  --data-type-boolean: oklch(0.92 0.08 305);
+  --data-type-date: oklch(0.92 0.09 80);
+  --data-type-id: oklch(0.92 0.07 200);
+  --data-type-json: oklch(0.92 0.08 35);
+  --data-type-array: oklch(0.92 0.07 280);
+  --data-type-binary: oklch(0.92 0.03 240);
+  --data-type-enum: oklch(0.92 0.08 350);
+}
+
+.diagram-editor .react-flow__edge.selected .react-flow__edge-path {
+  stroke-width: 3;
+}
+
+.diagram-editor .diagram-edge-selection-halo {
+  fill: none;
+  stroke: var(--background);
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }

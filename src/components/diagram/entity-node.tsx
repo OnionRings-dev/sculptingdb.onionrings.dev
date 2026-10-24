@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import type { Attribute, Entity } from "@/lib/diagram/model"
 import { dataTypeColor } from "./data-type-color"
 import { cn } from "@/lib/utils"
+import { useTheme } from "next-themes"
 
 export type EntityFlowNode = Node<
   { entity: Entity; attributes: Array<Attribute> },
@@ -37,6 +38,7 @@ export const EntityNode = memo(function EntityNodeView({
   selected,
   isConnectable,
 }: NodeProps<EntityFlowNode>) {
+  const { resolvedTheme } = useTheme()
   // Composite keys anchor to their first visible field. Without a primary key,
   // use the first attribute; an empty entity connects at the title row.
   const primaryKeyIndex = data.attributes.findIndex(
@@ -52,7 +54,11 @@ export const EntityNode = memo(function EntityNodeView({
   }, [id, anchorId, anchorIndex, updateNodeInternals])
   return (
     <div className="diagram-node" data-selected={selected || undefined}>
-      <Card className="gap-3 overflow-visible" size="sm">
+      <Card
+        className="gap-3 overflow-visible"
+        size="sm"
+        variant={resolvedTheme === "light" ? "translucent" : "default"}
+      >
         <CardHeader className="relative">
           {!anchorId && <EntityHandles isConnectable={isConnectable} />}
           <CardTitle className="truncate" title={data.entity.name}>
