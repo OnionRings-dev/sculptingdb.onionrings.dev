@@ -117,8 +117,9 @@ given workspaces by this migration.
 
 The home page lists the current user's projects and projects shared with them,
 sorted by last update. Search filters names and descriptions locally. Cards show
-diagram thumbnails and other collaborators' avatars. **New** creates an untitled
-project and empty diagram in one transaction, then opens `/projects/$projectId`.
+diagram thumbnails and the owner's avatar only for projects shared with the
+current user. **New** creates an untitled project and empty diagram in one
+transaction, then opens `/projects/$projectId`.
 The personal workspace is created on first project creation if necessary.
 
 Project pages open a full-page React Flow entity/relationship editor. Both `view`

@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only"
 
-import { and, desc, eq, inArray, ne, or } from "drizzle-orm"
+import { and, desc, eq, inArray, or } from "drizzle-orm"
 import type { NodePgDatabase } from "drizzle-orm/node-postgres"
 import type { ProjectSummary } from "./types"
 import * as schema from "@/db/schema"
@@ -48,18 +48,7 @@ export async function listAccessibleProjects(
 
   if (!projects.length) return []
   const projectIds = projects.map(({ id }) => id)
-  const [members, entities, relationships] = await Promise.all([
-    database
-      .select({
-        projectId: projectMember.projectId,
-        person: { id: user.id, name: user.name, image: user.image },
-      })
-      .from(projectMember)
-      .innerJoin(user, eq(projectMember.userId, user.id))
-      .where(
-        and(inArray(projectMember.projectId, projectIds), ne(user.id, userId))
-      )
-      .orderBy(user.name, user.id),
+  const [entities, relationships] = await Promise.all([
     database
       .select({
         projectId: diagramEntity.projectId,
@@ -89,16 +78,12 @@ export async function listAccessibleProjects(
       {
         ...record,
         canDelete: owner.id === userId,
-        collaborators: owner.id === userId ? [] : [owner],
+        isOwner: owner.id === userId,
+        owner,
         preview: { entities: [], relationships: [] },
       },
     ])
   )
-  for (const { projectId, person } of members) {
-    const collaborators = summaries.get(projectId)!.collaborators
-    if (!collaborators.some(({ id }) => id === person.id))
-      collaborators.push(person)
-  }
   for (const { projectId, ...entity } of entities)
     summaries.get(projectId)!.preview.entities.push(entity)
   for (const { projectId, ...relationship } of relationships)

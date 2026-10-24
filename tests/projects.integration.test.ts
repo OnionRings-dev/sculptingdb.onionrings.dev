@@ -94,7 +94,8 @@ describe.skipIf(!databaseURL)(
           name: "Untitled",
           description: null,
           canDelete: true,
-          collaborators: [],
+          isOwner: true,
+          owner: { id: ownerId, name: "Owner", image: null },
           preview: { entities: [], relationships: [] },
         },
       ])
@@ -160,16 +161,22 @@ describe.skipIf(!databaseURL)(
       expect(await listAccessibleProjects(db, collaboratorId)).toEqual([])
     })
 
-    test("summaries include actual collaborators and diagram content without exposing private projects or emails", async () => {
+    test("summaries identify the owner for shared projects without exposing private projects or emails", async () => {
       const shared = await createUntitledProject(db, ownerId)
       const privateProject = await createUntitledProject(db, ownerId)
+      const ownerImage = "https://example.test/owner.png"
+      await db
+        .update(schema.user)
+        .set({ image: ownerImage })
+        .where(eq(schema.user.id, ownerId))
       await db
         .update(schema.project)
         .set({ name: "Shop", description: "Orders and customers" })
         .where(eq(schema.project.id, shared.id))
-      await db
-        .insert(schema.projectMember)
-        .values({ projectId: shared.id, userId: collaboratorId, role: "view" })
+      await db.insert(schema.projectMember).values([
+        { projectId: shared.id, userId: collaboratorId, role: "view" },
+        { projectId: shared.id, userId: strangerId, role: "edit" },
+      ])
       const [customer, order] = await db
         .insert(schema.diagramEntity)
         .values([
@@ -206,7 +213,8 @@ describe.skipIf(!databaseURL)(
         name: "Shop",
         description: "Orders and customers",
         canDelete: false,
-        collaborators: [{ id: ownerId, name: "Owner", image: null }],
+        isOwner: false,
+        owner: { id: ownerId, name: "Owner", image: ownerImage },
       })
       expect(summary.preview.entities.map(({ name }) => name).sort()).toEqual([
         "Customer",
@@ -219,10 +227,12 @@ describe.skipIf(!databaseURL)(
       const ownerSummary = (await listAccessibleProjects(db, ownerId)).find(
         ({ id }) => id === shared.id
       )!
-      expect(ownerSummary.collaborators.map(({ id }) => id)).toEqual([
-        collaboratorId,
-      ])
+      expect(ownerSummary.isOwner).toBe(true)
+      expect(ownerSummary.owner).toEqual(summary.owner)
       expect(ownerSummary.canDelete).toBe(true)
+      const [editorSummary] = await listAccessibleProjects(db, strangerId)
+      expect(editorSummary.isOwner).toBe(false)
+      expect(editorSummary.owner).toEqual(summary.owner)
     })
 
     test("only the owner can delete a project, cascading its contents and preserving other projects", async () => {
@@ -370,9 +380,7 @@ describe.skipIf(!databaseURL)(
       expect((await loadDiagram(db, strangerId, created.id))?.canEdit).toBe(
         false
       )
-      expect(
-        (await listAccessibleProjects(db, ownerId))[0].collaborators
-      ).toHaveLength(2)
+      expect((await listAccessibleProjects(db, ownerId))[0].isOwner).toBe(true)
     })
 
     test("sharing and user discovery are owner-only even for an editor", async () => {

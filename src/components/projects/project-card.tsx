@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router"
 import { UserAvatar } from "@/components/account/user-avatar"
-import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import {
   Card,
@@ -15,7 +14,6 @@ import { ProjectActions } from "./project-actions"
 import type { ProjectSummary } from "@/lib/projects/types"
 
 export function ProjectCard({ project }: { project: ProjectSummary }) {
-  const { collaborators } = project
   return (
     <Card className="relative h-full min-w-0 gap-0 py-0">
       <Link
@@ -34,23 +32,12 @@ export function ProjectCard({ project }: { project: ProjectSummary }) {
               {project.description}
             </CardDescription>
           )}
-          {collaborators.length > 0 && (
-            <CardAction className="self-center">
-              <AvatarGroup aria-label="Collaborators">
-                {collaborators.slice(0, 3).map((person) => (
-                  <UserAvatar key={person.id} user={person} size="sm" />
-                ))}
-                {collaborators.length > 3 && (
-                  <AvatarGroupCount
-                    title={collaborators
-                      .slice(3)
-                      .map(({ name }) => name || "User")
-                      .join(", ")}
-                  >
-                    +{collaborators.length - 3}
-                  </AvatarGroupCount>
-                )}
-              </AvatarGroup>
+          {!project.isOwner && (
+            <CardAction
+              className="self-center"
+              aria-label={`Project owner: ${project.owner.name || "User"}`}
+            >
+              <UserAvatar user={project.owner} size="sm" />
             </CardAction>
           )}
         </CardHeader>

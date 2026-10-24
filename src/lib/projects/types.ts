@@ -23,7 +23,8 @@ export type ProjectSummary = {
   name: string
   description: string | null
   canDelete: boolean
-  collaborators: Array<ProjectPerson>
+  isOwner: boolean
+  owner: ProjectPerson
   preview: ProjectPreview
 }
 
