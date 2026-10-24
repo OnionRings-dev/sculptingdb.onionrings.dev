@@ -57,8 +57,10 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
-  const isLoginPage = useRouterState({
-    select: (state) => state.location.pathname === "/login",
+  const hideDevtools = useRouterState({
+    select: (state) =>
+      state.location.pathname === "/login" ||
+      state.location.pathname.startsWith("/projects/"),
   })
 
   return (
@@ -74,7 +76,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         >
           {children}
         </ThemeProvider>
-        {import.meta.env.DEV && !isLoginPage && (
+        {import.meta.env.DEV && !hideDevtools && (
           <TanStackDevtools
             config={{
               position: "bottom-right",

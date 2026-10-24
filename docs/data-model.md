@@ -3,10 +3,11 @@
 The initial scope is entity/relationship modeling, one diagram per project,
 external AI clients connected through MCP, and direct edits. This document
 describes the schema. Authenticated project listing, read access checks, and
-atomic creation of an untitled project and its diagram are implemented in
+atomic creation/deletion of projects are implemented in
 `src/lib/projects/project-store.server.ts`, exposed through authenticated server
-functions. Invitations, diagram edits, history recording, restoration, and MCP
-connection handling still need application services.
+functions. `src/lib/diagram/diagram-store.server.ts` implements manual diagram
+edits, revision checks, snapshots and restoration. Invitations and MCP connection
+handling still need application services.
 
 ## Workspaces and sharing
 
@@ -84,21 +85,26 @@ references remains necessary. Drizzle's TypeScript type does not validate MCP
 input. Change the snapshot format version and add compatibility handling when
 the stored format changes.
 
-The intended write transaction, to implement with the editing service, is:
+The editing service uses the following write transaction:
 
-1. Check current access and lock the diagram row, or compare its revision with the
-   version the client originally read and reject a stale edit.
-2. Apply the complete logical change to the normalized records.
+1. Check current access, lock the diagram row, recheck Edit/owner access and
+   compare its revision with the version the client read. Reject stale writes.
+2. Validate the complete logical change and replace this project's normalized
+   graph while preserving entity, attribute and relationship UUIDs.
 3. Increment `diagram.revision`, append the resulting complete snapshot at that
    revision, and update timestamps within the same transaction.
 
 A restore appends a new revision with `origin = restore` and
 `restoredFromRevision` pointing to an earlier revision of the same diagram.
-To restore the initial empty state, append an empty snapshot as a normal change;
-revision zero has no history row. Committed revisions should not be updated or
-deleted individually by the service. The schema does not install append-only
-triggers or automatically keep the revision counter and snapshots synchronized.
-History grouping and undo behavior remain to be decided.
+Revision zero is the initial state before the first edit. On that first edit,
+the service captures the starting diagram at revision one and records the change
+at revision two, in the same transaction. This also handles existing diagrams
+whose counter is still zero. The original empty state can then be restored from
+revision one. Committed revisions are never updated or deleted individually by
+the service; the schema does not install append-only triggers. Each form save,
+completed move, connection or selection deletion is one change. No-op edits,
+zoom, pan and selection do not create history. Previewing a version is read-only.
+Personal undo/redo shortcuts and finer history grouping remain deferred.
 
 ## One MCP connection per project
 

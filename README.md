@@ -118,8 +118,8 @@ diagram thumbnails and other collaborators' avatars. **New** creates an untitled
 project and empty diagram in one transaction, then opens `/projects/$projectId`.
 The personal workspace is created on first project creation if necessary.
 
-Project pages currently show only their name and description, with navigation
-back to the list. Both `view` and `edit` members can open a shared project; private
+Project pages open a full-page React Flow entity/relationship editor. Both `view`
+and `edit` members can open a shared project; private
 and missing projects produce the same not-found page. Every project server
 function authenticates the caller and reads access from the database. The account
 menu contains appearance preferences and local logout. Dark mode is the initial
@@ -128,6 +128,44 @@ theme; users can choose light, dark, or their system preference.
 Owned project cards have an options menu with a confirmed delete action. Deletion
 checks ownership in the database and cascades to the project's contents; View/Edit
 members cannot delete a shared project. Cards remain still on hover.
+
+## Diagram editor
+
+The canvas fills the project page. Navigation, account, editing and zoom controls
+float over it. History opens on the left and reduces the canvas width instead of
+covering it; it remains a separate column on small screens too.
+
+- Add an entity with **Entity**, or select/double-click a node to edit it. Entity
+  forms include descriptions and ordered attributes with freeform types, primary
+  key, nullable, unique and textual default values.
+- Drag from an entity's right handle to another entity's left handle to connect
+  them, or use **Add relationship**. Double-click a relationship or select it and
+  choose **Edit selection** to change its endpoints, label and cardinalities.
+- Move nodes by dragging or using arrow keys while selected. Delete selected
+  nodes/relationships with the toolbar or Delete/Backspace. Deleting an entity
+  removes its attributes and incident relationships.
+- Each completed form save, drag, keyboard move, connection, or deletion saves
+  atomically with a full history snapshot. No-op saves, selection, zoom and pan
+  do not create revisions. The first edit also captures the initial state, so an
+  empty diagram can be restored.
+- Selecting a history entry previews it without changing the current diagram.
+  **Current** returns to the latest state; **Restore** appends a new revision
+  without removing subsequent history. View members can inspect history, while
+  owner/Edit access is required for changes and restores.
+
+The server locks the diagram row and checks the client's expected revision.
+Stale writes return the latest graph rather than overwriting it. A client allows
+one save at a time, displays failures, and reverts an unsuccessful local move.
+Reload fetches the current authorized state. Automatic updates between browser
+sessions and MCP transport/authentication remain to implement.
+
+Diagram commands and validation live in `src/lib/diagram/model.ts`; persistence,
+authorization, snapshots and restore live in `diagram-store.server.ts`. React Flow
+state is converted at the UI boundary. Future MCP tools can call the same service
+operations without depending on canvas internals. This initial implementation
+replaces the project's normalized graph within the transaction and bounds it to
+500 entities, 10,000 attributes and 5,000 relationships. Larger graphs and snapshot
+retention can be optimized later.
 
 ## Checks
 
@@ -164,6 +202,11 @@ and restore references, cascade behavior, and exclusive MCP lease records.
 Project service tests cover concurrent workspace provisioning, project/diagram
 creation, read access and revocation, and isolation of collaborator/preview data.
 They remove only their own fixture users and cascading application records.
+
+Diagram integration tests cover round-trip persistence, initial-state snapshots,
+no-op saves, grouped deletion, restore, conflicting concurrent writes, current
+permissions, invalid inputs, and transaction rollback on cross-project UUID
+collisions.
 
 Live verification still requires registered credentials: sign in with OnionRings,
 complete consent, return to the app, confirm access to `/`, and log out. Also deny

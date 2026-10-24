@@ -2,6 +2,7 @@
 @import "./typeset.css";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@xyflow/react/dist/style.css";
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
@@ -157,4 +158,34 @@
     background-image: radial-gradient(var(--border) 0.75px, transparent 0.75px);
     background-size: 16px 16px;
   }
+
+  .diagram-toolbar {
+    border-radius: var(--radius-lg);
+    background: var(--card);
+    box-shadow: 0 0 0 1px var(--border), 0 2px 8px color-mix(in oklch, var(--foreground) 3%, transparent);
+  }
+
+  .diagram-node {
+    width: 240px;
+    border-radius: var(--radius-xl);
+  }
+
+  .diagram-node[data-selected] {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+}
+
+.diagram-editor .react-flow {
+  --xy-background-color: var(--background);
+  --xy-edge-stroke: var(--muted-foreground);
+  --xy-edge-stroke-selected: var(--foreground);
+  --xy-edge-stroke-width: 1.25;
+  --xy-handle-background-color: var(--muted-foreground);
+  --xy-handle-border-color: var(--background);
+  --xy-attribution-background-color: var(--background);
+}
+
+.diagram-editor .react-flow__attribution {
+  color: var(--muted-foreground);
 }
