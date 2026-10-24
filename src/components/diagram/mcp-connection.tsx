@@ -228,10 +228,10 @@ function ConnectionDialog({
   return (
     <DialogContent
       className="max-h-[calc(100svh-2rem)] overflow-y-auto sm:max-w-xl"
-      showCloseButton={!pending}
+      showCloseButton={false}
     >
       <DialogHeader>
-        <div className="flex items-center justify-between gap-3 pr-6">
+        <div className="flex items-center justify-between gap-3">
           <DialogTitle>
             {instructions ? "Connect a client" : "MCP clients"}
           </DialogTitle>
@@ -241,7 +241,9 @@ function ConnectionDialog({
             disabled={pending || !connection}
             onClick={() => setInstructions((value) => !value)}
           >
-            {instructions ? "Back" : "Connect"}
+            <span className="relative top-px">
+              {instructions ? "Back" : "Connect"}
+            </span>
           </Button>
         </div>
         <DialogDescription>
