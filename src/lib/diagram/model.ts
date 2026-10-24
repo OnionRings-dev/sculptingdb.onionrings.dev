@@ -255,6 +255,7 @@ export type HistoryEntry = {
 export type DiagramEditorData = {
   project: { id: string; name: string; description: string | null }
   canEdit: boolean
+  canManageSharing: boolean
   revision: number
   snapshot: DiagramSnapshot
   history: Array<HistoryEntry>

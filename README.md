@@ -129,6 +129,22 @@ Owned project cards have an options menu with a confirmed delete action. Deletio
 checks ownership in the database and cascades to the project's contents; View/Edit
 members cannot delete a shared project. Cards remain still on hover.
 
+Click the project title to rename it inline (Enter or blur saves, Escape cancels).
+Owners and Edit members can rename; View members see a read-only title. Renaming
+does not create a diagram revision.
+
+The owner can use **Invite people** next to the account menu to share with up to
+20 registered email addresses at once. Autocomplete searches names and emails
+after two characters, excluding the owner and existing members. Direct entry
+and pasting multiple emails are supported. Choose View/Edit for the batch, then
+adjust each collaborator's permission in the same dialog. Sharing grants access
+immediately; no email is sent. Unknown emails reject the entire batch. Repeating
+an invitation preserves existing permissions. These operations check ownership
+on the server; Edit does not grant permission to manage sharing.
+Each collaborator's permission menu also includes **Remove access**, with a
+confirmation. Removal revokes access to that project and releases any MCP lease
+held there by that collaborator, preserving the account, graph and history.
+
 ## Diagram editor
 
 The canvas fills the project page. Navigation, account, editing and zoom controls

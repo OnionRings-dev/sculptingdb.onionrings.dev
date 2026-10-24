@@ -116,6 +116,7 @@ async function readEditor(
   return {
     project: { id: found.id, name: found.name, description: found.description },
     canEdit: found.ownerId === userId || found.role === "edit",
+    canManageSharing: found.ownerId === userId,
     revision: found.revision,
     snapshot,
     history: history.map((entry) => ({

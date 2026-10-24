@@ -6,8 +6,10 @@ describes the schema. Authenticated project listing, read access checks, and
 atomic creation/deletion of projects are implemented in
 `src/lib/projects/project-store.server.ts`, exposed through authenticated server
 functions. `src/lib/diagram/diagram-store.server.ts` implements manual diagram
-edits, revision checks, snapshots and restoration. Invitations and MCP connection
-handling still need application services.
+edits, revision checks, snapshots and restoration. Project renaming and registered
+user sharing are implemented in the project services, including
+`src/lib/projects/sharing-store.server.ts`. Invitation delivery/acceptance for
+unregistered users and MCP connection handling remain deferred.
 
 ## Workspaces and sharing
 
@@ -29,11 +31,25 @@ handling still need application services.
   verified email, then create membership and set `acceptedAt` atomically.
 
 The owner implicitly has full access and manages invitations, roles, and project
-deletion. `edit` is for diagram changes, not project administration. Do not add
+deletion. `edit` allows diagram changes and project renaming. Do not add
 the owner as an invited member. These are service rules, not SQL authorization:
 every future web/MCP operation must check the current user and current project
 access on the server. Invitation role changes do not update existing membership
 automatically.
+
+The current web sharing flow creates `project_member` records directly for
+registered accounts; it sends no email and does not use `project_invitation`.
+Email addresses are trimmed and matched case-insensitively, batches are capped at
+20, and any unknown address rejects the entire batch. Duplicate invitations are
+idempotent and preserve existing roles; a separate owner-only operation changes
+an individual member's role. User search requires project ownership, at least two
+characters and returns at most ten matching accounts. Sharing and renaming do not
+change diagram revisions or snapshots.
+The owner can remove a membership through the same sharing service. The operation
+locks the project, deletes only the selected project/user membership and any MCP
+lease held by that user on that project in one transaction. It preserves the
+user's account, other memberships and revision authorship. Subsequent reads,
+writes and history requests check access again; the owner cannot be removed.
 
 Application IDs are database-generated UUIDs; user references preserve Better
 Auth's existing text IDs. Timestamps use PostgreSQL `timestamptz`. `updatedAt`

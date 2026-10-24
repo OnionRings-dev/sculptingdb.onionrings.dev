@@ -21,6 +21,8 @@ import {
   ZoomOutAreaIcon,
 } from "@hugeicons/core-free-icons"
 import { AccountMenu } from "@/components/account/account-menu"
+import { ProjectTitle } from "@/components/projects/project-title"
+import { ProjectSharing } from "@/components/projects/project-sharing"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
@@ -282,8 +284,8 @@ function EditorCanvas({
         >
           <Background gap={20} size={1} color="var(--border)" />
         </ReactFlow>
-        <header className="pointer-events-none absolute inset-x-4 top-4 flex items-start justify-between gap-3">
-          <div className="diagram-toolbar pointer-events-auto flex min-w-0 items-center gap-1 p-1">
+        <header className="pointer-events-none absolute inset-x-4 top-4 flex flex-wrap items-start justify-between gap-3 @sm/canvas:flex-nowrap">
+          <div className="diagram-toolbar pointer-events-auto flex w-full min-w-0 items-center gap-1 p-1 @sm/canvas:w-auto">
             <Button
               variant="ghost"
               size="icon"
@@ -299,20 +301,27 @@ function EditorCanvas({
               onClick={() => setHistoryOpen((open) => !open)}
               pressed={historyOpen}
             />
-            <h1
-              className="hidden max-w-48 truncate pr-3 pl-2 text-sm @md/canvas:block"
-              title={data.project.name}
-            >
-              {data.project.name}
-            </h1>
+            <ProjectTitle
+              name={data.project.name}
+              canEdit={data.canEdit}
+              pending={pending}
+              onRename={editor.rename}
+            />
             {pending && <Spinner className="mr-2" />}
           </div>
-          <div className="diagram-toolbar pointer-events-auto rounded-full p-1">
-            <AccountMenu user={user} />
+          <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
+            {data.canManageSharing && (
+              <div className="diagram-toolbar p-1">
+                <ProjectSharing projectId={data.project.id} />
+              </div>
+            )}
+            <div className="diagram-toolbar rounded-full p-1">
+              <AccountMenu user={user} />
+            </div>
           </div>
         </header>
         {preview && (
-          <div className="pointer-events-none absolute inset-x-4 top-20 flex justify-center">
+          <div className="pointer-events-none absolute inset-x-4 top-32 flex justify-center @sm/canvas:top-20">
             <div className="diagram-toolbar pointer-events-auto flex flex-wrap items-center justify-center gap-2 p-2">
               <span className="text-xs text-muted-foreground">
                 Version {preview.revision}
@@ -346,7 +355,7 @@ function EditorCanvas({
           </div>
         )}
         {error && (
-          <div className="absolute inset-x-4 top-32 flex justify-center">
+          <div className="absolute inset-x-4 top-48 flex justify-center @sm/canvas:top-32">
             <Alert variant="destructive" className="max-w-md">
               <AlertDescription>{error}</AlertDescription>
               <Button

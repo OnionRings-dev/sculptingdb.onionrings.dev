@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, ne, or } from "drizzle-orm"
 import type { NodePgDatabase } from "drizzle-orm/node-postgres"
 import type { ProjectSummary } from "./types"
 import * as schema from "@/db/schema"
+import { renameProjectSchema } from "./project-model"
 
 type Database = NodePgDatabase<typeof schema>
 const isProjectId = (value: string) =>
@@ -169,4 +170,37 @@ export async function deleteOwnedProject(
     )
     .returning({ id: project.id })
   return deleted.length > 0
+}
+
+export async function renameAccessibleProject(
+  database: Database,
+  userId: string,
+  input: unknown
+) {
+  const { projectId, name } = renameProjectSchema.parse(input)
+  const owned = database
+    .select({ id: workspace.id })
+    .from(workspace)
+    .where(eq(workspace.ownerUserId, userId))
+  const editable = database
+    .select({ id: projectMember.projectId })
+    .from(projectMember)
+    .where(
+      and(eq(projectMember.userId, userId), eq(projectMember.role, "edit"))
+    )
+  const renamed = await database
+    .update(project)
+    .set({ name })
+    .where(
+      and(
+        eq(project.id, projectId),
+        or(inArray(project.workspaceId, owned), inArray(project.id, editable))
+      )
+    )
+    .returning({
+      id: project.id,
+      name: project.name,
+      description: project.description,
+    })
+  return renamed.at(0) ?? null
 }

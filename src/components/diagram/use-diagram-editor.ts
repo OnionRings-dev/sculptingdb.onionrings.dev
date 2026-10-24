@@ -10,6 +10,7 @@ import {
 import { flowEdges, flowNodes } from "./flow-model"
 import type { EntityFlowNode } from "./entity-node"
 import type { RelationshipFlowEdge } from "./relationship-edge"
+import { renameProject } from "@/lib/projects/project.functions"
 
 export function useDiagramEditor(initialData: DiagramEditorData) {
   const [data, setData] = useState(initialData)
@@ -140,6 +141,30 @@ export function useDiagramEditor(initialData: DiagramEditorData) {
       setPending(false)
     }
   }
+  async function rename(name: string): Promise<boolean> {
+    if (busy.current || !current.current.canEdit) return false
+    busy.current = true
+    setPending(true)
+    setError(null)
+    try {
+      const project = await renameProject({
+        data: { projectId: current.current.project.id, name },
+      })
+      if (!project) {
+        setError("You no longer have permission to rename this project.")
+        return false
+      }
+      current.current = { ...current.current, project }
+      setData((value) => ({ ...value, project }))
+      return true
+    } catch {
+      setError("Could not rename the project. Try again.")
+      return false
+    } finally {
+      busy.current = false
+      setPending(false)
+    }
+  }
   return {
     data,
     pending,
@@ -152,5 +177,6 @@ export function useDiagramEditor(initialData: DiagramEditorData) {
     commit,
     showRevision,
     reload,
+    rename,
   }
 }
