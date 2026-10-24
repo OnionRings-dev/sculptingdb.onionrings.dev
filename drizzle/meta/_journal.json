@@ -8,6 +8,13 @@
       "when": 1792778568193,
       "tag": "0000_wakeful_odin",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792844349592,
+      "tag": "0001_application_model",
+      "breakpoints": true
     }
   ]
 }

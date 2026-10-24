@@ -103,6 +103,13 @@ drop existing tables. Apply committed migrations with `bun run db:migrate`.
 After editing `src/db/schema.ts`, generate and review a new migration with
 `bun run db:generate`. Back up production data before running production migrations.
 
+The application schema adds personal workspaces, projects, per-project sharing
+and email invitations, one entity/relationship diagram per project, revision
+snapshots, and an expiring MCP connection lease per project. See
+[the data model](docs/data-model.md) for constraints, lifecycle rules, and the
+application behavior still to implement. Existing users are not automatically
+given workspaces by this migration.
+
 ## Checks
 
 ```sh
@@ -113,10 +120,10 @@ bun run build
 bun test
 ```
 
-Environment validation tests always run. OAuth integration tests need an explicitly
-configured **disposable** PostgreSQL database whose name ends in `_test`. They
-apply migrations and truncate its auth tables before and after the suite. They
-never fall back to `DATABASE_URL`.
+Environment validation tests always run. PostgreSQL integration tests need an
+explicitly configured **disposable** database whose name ends in `_test`. Both
+suites apply migrations; the OAuth suite truncates auth tables with `CASCADE`
+before and after it runs. Neither suite falls back to `DATABASE_URL`.
 
 ```sh
 docker compose exec -T postgres createdb -U sculpting sculpting_db_test
@@ -129,6 +136,11 @@ identities are used. Coverage includes code exchange with Basic authentication,
 PKCE, first login, stable subjects, disabled email linking, nonce/signature rejection,
 consent denial, invalid/expired transactions, local logout, and issuer pinning after
 a discovery outage.
+
+Application schema tests also run against `TEST_DATABASE_URL`. They apply the
+migrations and roll back their fixtures after each test. They cover project
+isolation, sharing and invitation constraints, entity deletion, revision snapshots
+and restore references, cascade behavior, and exclusive MCP lease records.
 
 Live verification still requires registered credentials: sign in with OnionRings,
 complete consent, return to the app, confirm access to `/`, and log out. Also deny
