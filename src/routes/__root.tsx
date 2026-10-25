@@ -15,7 +15,7 @@ import { getUser } from "@/lib/auth/session.functions"
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
     const user = await getUser()
-    if (!user && location.pathname !== "/login") {
+    if (!user && location.pathname !== "/" && location.pathname !== "/login") {
       if (location.pathname === "/mcp/consent")
         throw redirect({
           href: `/login?${new URLSearchParams(location.searchStr).get("oauth_query") ?? location.searchStr.slice(1)}`,
@@ -73,6 +73,7 @@ export const Route = createRootRoute({
 })
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const { user } = Route.useRouteContext()
   const hideDevtools = useRouterState({
     select: (state) =>
       state.location.pathname === "/login" ||
@@ -93,7 +94,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         >
           {children}
         </ThemeProvider>
-        {import.meta.env.DEV && !hideDevtools && (
+        {import.meta.env.DEV && user && !hideDevtools && (
           <TanStackDevtools
             config={{
               position: "bottom-right",

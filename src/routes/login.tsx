@@ -1,8 +1,7 @@
-import { useState } from "react"
 import { createFileRoute } from "@tanstack/react-router"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { authClient } from "@/lib/auth/client"
+import { useSignIn } from "@/lib/auth/use-sign-in"
 import { mcpLoginCallback } from "@/lib/mcp/login"
 
 export const Route = createFileRoute("/login")({
@@ -15,33 +14,18 @@ export const Route = createFileRoute("/login")({
 
 function LoginPage() {
   const { error } = Route.useSearch()
-  const [pending, setPending] = useState(false)
-  const [failed, setFailed] = useState(false)
-
-  async function signIn() {
-    setPending(true)
-    setFailed(false)
-
-    try {
-      const result = await authClient.signIn.social({
-        provider: "onionrings",
-        callbackURL: mcpLoginCallback(window.location.search),
-        errorCallbackURL: "/login",
-      })
-      if (result.error || !result.data.url) {
-        setFailed(true)
-        setPending(false)
-      }
-    } catch {
-      setFailed(true)
-      setPending(false)
-    }
-  }
+  const { pending, failed, signIn } = useSignIn()
 
   return (
     <main className="flex min-h-svh items-center justify-center p-6">
       <div className="relative flex flex-col items-center">
-        <Button disabled={pending} aria-busy={pending} onClick={signIn}>
+        <Button
+          disabled={pending}
+          aria-busy={pending}
+          onClick={() => {
+            void signIn(mcpLoginCallback(window.location.search))
+          }}
+        >
           Login
         </Button>
         {(error || failed) && (

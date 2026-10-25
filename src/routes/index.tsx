@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Add01Icon, Search01Icon } from "@hugeicons/core-free-icons"
 import { AccountMenu } from "@/components/account/account-menu"
+import { LandingPage } from "@/components/landing/landing-page"
 import { ProjectCard } from "@/components/projects/project-card"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -16,9 +17,23 @@ import { Spinner } from "@/components/ui/spinner"
 import { createProject, getProjects } from "@/lib/projects/project.functions"
 
 export const Route = createFileRoute("/")({
-  loader: () => getProjects(),
-  component: ProjectsPage,
+  loader: ({ context }) => (context.user ? getProjects() : []),
+  head: () => ({
+    meta: [
+      {
+        name: "description",
+        content:
+          "Design entities and relationships on a simple canvas. Sketch by hand or connect your AI with Sculpting DB.",
+      },
+    ],
+  }),
+  component: HomePage,
 })
+
+function HomePage() {
+  const { user } = Route.useRouteContext()
+  return user ? <ProjectsPage /> : <LandingPage />
+}
 
 function ProjectsPage() {
   const { user } = Route.useRouteContext()

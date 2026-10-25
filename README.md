@@ -61,7 +61,10 @@ in this repository. Never use `VITE_*` variables for these values.
 
 ## Access and session behavior
 
-- Anonymous page requests, including unknown paths, redirect to `/login`.
+- Anonymous visitors to `/` see a minimal landing page with an example schema
+  and buttons that start OnionRings sign-in directly. Project data is loaded
+  only for authenticated visitors.
+  Other anonymous page requests, including unknown paths, redirect to `/login`.
   The login page shows one centered **Login** button, plus a recoverable message
   if sign-in fails. Authenticated users visiting `/login` return to `/`.
 - All users authorized by OnionRings can create a local user at first login.
@@ -115,8 +118,8 @@ given workspaces by this migration.
 
 ## Project flow
 
-The home page lists the current user's projects and projects shared with them,
-sorted by last update. Search filters names and descriptions locally. Cards show
+For authenticated users, the home page lists their projects and projects shared
+with them, sorted by last update. Search filters names and descriptions locally. Cards show
 diagram thumbnails and the owner's avatar only for projects shared with the
 current user. **New** creates an untitled project and empty diagram in one
 transaction, then opens `/projects/$projectId`.
