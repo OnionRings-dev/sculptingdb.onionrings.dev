@@ -95,7 +95,11 @@ export function AccountMenu({ user }: { user: AccountUser }) {
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <DropdownMenuGroup>
-            <DropdownMenuItem onClick={signOut} disabled={pending}>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={signOut}
+              disabled={pending}
+            >
               <HugeiconsIcon icon={Logout01Icon} strokeWidth={1.5} />
               Log out
             </DropdownMenuItem>
