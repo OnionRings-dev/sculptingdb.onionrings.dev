@@ -160,7 +160,10 @@ covering it; it remains a separate column on small screens too.
 
 - Add an entity with **Entity**, or select/double-click a node to edit it. Entity
   forms include descriptions and ordered attributes with freeform types, primary
-  key, nullable, unique and textual default values.
+  key, nullable, unique and textual default values. Attribute rows have a drag
+  handle for reordering; keyboard users can focus it, press Space, move with the
+  arrow keys and press Space again to drop, or Escape to cancel. **Save** commits
+  the new order with the entity in one revision; **Cancel** discards the draft.
 - Drag from an entity's right handle to another entity's left handle to connect
   them, or use **Add relationship**. Double-click a relationship or select it and
   choose **Edit selection** to change its endpoints, label and cardinalities.

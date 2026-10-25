@@ -154,6 +154,57 @@ describe.skipIf(!databaseURL)(
       expect(moved.revision).toBe(4)
     })
 
+    test("reordering attributes preserves their data, saves once, and restores the earlier order", async () => {
+      const entity = makeEntity()
+      const attributes = [
+        makeAttribute(entity),
+        {
+          ...makeAttribute(entity),
+          id: randomUUID(),
+          name: "email",
+          dataType: "string",
+          description: "Contact address",
+          isPrimaryKey: false,
+          isNullable: true,
+          isUnique: true,
+          defaultValue: null,
+          sortOrder: 1,
+        },
+        {
+          ...makeAttribute(entity),
+          id: randomUUID(),
+          name: "createdAt",
+          dataType: "timestamp",
+          isPrimaryKey: false,
+          defaultValue: "now()",
+          sortOrder: 2,
+        },
+      ]
+      const original = await edit({ type: "upsert_entity", entity, attributes })
+      const reordered = [attributes[2], attributes[0], attributes[1]].map(
+        (attribute, sortOrder) => ({ ...attribute, sortOrder })
+      )
+      const command: DiagramCommand = {
+        type: "upsert_entity",
+        entity,
+        attributes: reordered,
+      }
+      const saved = await edit(command)
+      expect(saved.snapshot.attributes).toEqual(reordered)
+      expect(saved.snapshot.entities).toEqual(original.snapshot.entities)
+      expect(saved.revision).toBe(original.revision + 1)
+      expect(saved.history).toHaveLength(original.history.length + 1)
+      expect((await loadDiagram(db, ownerId, projectId))?.snapshot).toEqual(
+        saved.snapshot
+      )
+      expect((await edit(command)).revision).toBe(saved.revision)
+      const restored = await edit({
+        type: "restore",
+        revision: original.revision,
+      })
+      expect(restored.snapshot).toEqual(original.snapshot)
+    })
+
     test("entity deletion cascades within a single change and restore appends the complete earlier graph", async () => {
       const customer = makeEntity()
       const order = makeEntity("Order")
