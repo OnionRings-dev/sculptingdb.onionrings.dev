@@ -1,0 +1,10 @@
+# Optional host bindings for local development or a proxy running on the host.
+# Dokploy should use compose.yaml alone and route to app:3000 internally.
+services:
+  app:
+    ports:
+      - "${APP_HOST:-127.0.0.1}:${APP_PORT:-3000}:3000"
+
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"

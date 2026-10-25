@@ -32,6 +32,107 @@ the `postgres_data` volume. `bun run db:stop` stops the database without deletin
 data. If the port changes, update both `POSTGRES_PORT` and `DATABASE_URL`.
 For a manually configured `.env`, URL-encode the database password in `DATABASE_URL`.
 
+## Self-hosting on Dokploy
+
+Use a **Docker Compose** service (not Docker Stack), connect this Git repository,
+and set **Compose Path** to `./compose.yaml`.
+
+1. In **Environment**, set the following server variables. Generate independent
+   random values for the database password and app secret (for example, run
+   `openssl rand -hex 32` separately for each). Keep them stable across deployments.
+
+   ```dotenv
+   POSTGRES_PASSWORD=<random-database-password>
+   BETTER_AUTH_URL=https://sculpting.example.com
+   BETTER_AUTH_SECRET=<independent-random-secret-at-least-32-characters>
+   ONIONRINGS_CLIENT_ID=<production-client-id>
+   ONIONRINGS_CLIENT_SECRET=<production-client-secret>
+   ```
+
+   `ONIONRINGS_ISSUER` defaults to `https://auth.onionrings.dev/api/auth`.
+   `DATABASE_URL`, host ports and build-time secrets are not needed: Compose
+   generates its internal connection URL from `POSTGRES_PASSWORD`, including
+   URL encoding. Register the production OnionRings client with callback
+   `https://sculpting.example.com/api/auth/callback/onionrings`.
+2. Enable **Isolated Deployments** so the app, migration job, database and Dokploy's
+   Traefik can communicate on the deployment's network. No external network name
+   or manual Traefik labels are needed. Use **Preview Compose** to check the
+   generated networks and routing before deployment.
+3. In **Domains**, add your hostname for service **app**, container port **3000**,
+   path `/`, and enable **HTTPS** with a Let's Encrypt certificate. The domain's
+   HTTPS origin must exactly match `BETTER_AUTH_URL`. Point its DNS to your server.
+4. Deploy. Compose waits for PostgreSQL to be healthy, runs the one-shot `migrate`
+   service, then starts the app. Failed migrations prevent app startup. Check the
+   `app`, `migrate` and `postgres` logs from Dokploy if deployment fails.
+
+The main Compose file publishes **no host ports**, avoiding conflicts with
+Dokploy's own port 3000 and other databases. Traefik reaches `app:3000` internally;
+PostgreSQL stays on the deployment network. Keep Isolated Deployments enabled:
+without it, manually ensure all three services retain a shared network when
+Dokploy adds its proxy network.
+
+The production image uses a [Nitro Bun server](https://nitro.build/deploy/runtimes/bun)
+and the pinned Alpine Bun runtime. Both app and migration images share the same
+runtime layers. Build tools, source dependencies and environment files stay out
+of the final images; only compiled output and, for the migration job, SQL
+migrations are copied. The containers run as an unprivileged user. The builder
+uses Debian for build-tool compatibility; the production output has no native
+Node addons, so it can run on Alpine without copying Debian dependencies.
+
+Compose sets `TRUST_PROXY=true` for HTTPS termination by Traefik. The proxy must
+preserve `Host`, overwrite `X-Forwarded-Proto` with `https`, and support streaming
+responses for diagram updates and MCP. Forwarded host headers never replace the
+original host, and browser Origin checks still apply. Only expose the app through
+a proxy you control. Production authentication requires HTTPS.
+
+See Dokploy's documentation for [Compose environment variables](https://docs.dokploy.com/docs/core/docker-compose),
+[domain routing](https://docs.dokploy.com/docs/core/docker-compose/domains) and
+[Isolated Deployments](https://docs.dokploy.com/docs/core/docker-compose/utilities).
+
+### Local Docker deployment
+
+For a deployment outside Dokploy with a reverse proxy running on the host,
+create `.env` without installing Bun on the host:
+
+```sh
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$PWD:/app" -w /app oven/bun:1.4.4-alpine bun scripts/setup-env.ts
+```
+
+The script generates independent database and app secrets and preserves an
+existing `.env`. Set the HTTPS `BETTER_AUTH_URL` and production OnionRings
+credentials, then add the local port overlay:
+
+```sh
+docker compose -f compose.yaml -f compose.local.yaml up -d --build --wait
+```
+
+The overlay binds the app to `127.0.0.1:3000` and PostgreSQL to `127.0.0.1:5432`.
+`APP_HOST`, `APP_PORT` and `POSTGRES_PORT` customize those bindings. Point your
+HTTPS proxy at the app's host port. `bun run db:start` uses this overlay to start
+only PostgreSQL for development; `bun run db:stop` stops it without deleting data.
+
+### Persistence and updates
+
+PostgreSQL data persists in the `postgres_data` named volume, including across
+Dokploy redeployments. Do not change `POSTGRES_PASSWORD` without also changing the
+existing database user's password. `docker compose down` preserves data;
+`docker compose down -v` **deletes the database**.
+
+Back up the database before an upgrade. From the deployment's Compose directory
+and project context (or using the equivalent service console in Dokploy):
+
+```sh
+docker compose exec -T postgres pg_dump -U sculpting -d sculpting_db > backup.sql
+```
+
+Redeploy from Dokploy to rebuild and apply pending migrations. The migration job
+runs again on each `up`; already applied migrations are skipped. For local Docker
+deployments, repeat the `up -d --build --wait` command with both Compose files.
+Inspect failures with `docker compose logs migrate`. A plain SQL backup can be
+restored into a fresh database with
+`docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U sculpting -d sculpting_db < backup.sql`.
+
 ## OnionRings client registration
 
 An administrator must register the development client at

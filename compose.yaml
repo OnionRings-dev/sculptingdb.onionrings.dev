@@ -1,12 +1,53 @@
 services:
+  app:
+    build:
+      context: .
+      target: app
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      TRUST_PROXY: ${TRUST_PROXY:-true}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      ONIONRINGS_ISSUER: ${ONIONRINGS_ISSUER:-https://auth.onionrings.dev/api/auth}
+      ONIONRINGS_CLIENT_ID: ${ONIONRINGS_CLIENT_ID:-}
+      ONIONRINGS_CLIENT_SECRET: ${ONIONRINGS_CLIENT_SECRET:-}
+    expose:
+      - "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "const response = await fetch('http://127.0.0.1:3000/api/auth/ok'); if (!response.ok) process.exit(1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    init: true
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   postgres:
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: sculpting_db
       POSTGRES_USER: sculpting
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    ports:
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:

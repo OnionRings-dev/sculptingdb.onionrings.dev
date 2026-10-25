@@ -1,0 +1,13 @@
+.git
+.agents
+.claude
+.env*
+node_modules
+dist
+dist-ssr
+.output
+.nitro
+.tanstack
+*.tsbuildinfo
+tests
+docs

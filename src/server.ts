@@ -1,9 +1,11 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry"
 import { getCurrentUser } from "@/lib/auth/auth.server"
 import { requiresBrowserSession } from "@/lib/auth/api-policy"
+import { proxyRequest } from "@/lib/proxy-request"
 
 export default createServerEntry({
   async fetch(request, options) {
+    request = proxyRequest(request, process.env.TRUST_PROXY === "true")
     let pathname: string
     try {
       // Match Start's URI decoding and case-insensitive route matching.
