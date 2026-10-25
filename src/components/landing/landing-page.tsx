@@ -1,5 +1,10 @@
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowRight01Icon, Key01Icon } from "@hugeicons/core-free-icons"
+import {
+  ArrowRight01Icon,
+  GithubIcon,
+  Key01Icon,
+} from "@hugeicons/core-free-icons"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -7,6 +12,7 @@ import { Separator } from "@/components/ui/separator"
 import { Spinner } from "@/components/ui/spinner"
 import { dataTypeColor } from "@/components/diagram/data-type-color"
 import { useSignIn } from "@/lib/auth/use-sign-in"
+import { mcpLoginCallback } from "@/lib/mcp/login"
 
 const exampleEntities = [
   {
@@ -84,7 +90,7 @@ function DiagramExample() {
   )
 }
 
-export function LandingPage() {
+export function LandingPage({ authError }: { authError?: string }) {
   const { pending, failed, signIn } = useSignIn()
   return (
     <div className="mx-auto flex min-h-svh max-w-6xl flex-col px-6 sm:px-10">
@@ -92,16 +98,25 @@ export function LandingPage() {
         <div className="flex items-center gap-2.5">
           <img src="/favicon.svg" alt="" className="size-6" />
           <span className="text-sm font-medium">Sculpting DB</span>
+          <Badge variant="beta">Beta</Badge>
         </div>
         <Button
           variant="ghost"
-          disabled={pending}
-          aria-busy={pending}
-          onClick={() => {
-            void signIn()
-          }}
+          nativeButton={false}
+          render={
+            <a
+              href="https://github.com/OnionRings-dev/sculptingdb.onionrings.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+            />
+          }
         >
-          Log in
+          <HugeiconsIcon
+            icon={GithubIcon}
+            data-icon="inline-start"
+            aria-hidden="true"
+          />
+          GitHub
         </Button>
       </header>
       <main className="grid flex-1 items-center gap-12 py-12 lg:grid-cols-[1fr_1.1fr] lg:gap-14 lg:py-24">
@@ -121,7 +136,7 @@ export function LandingPage() {
               disabled={pending}
               aria-busy={pending}
               onClick={() => {
-                void signIn()
+                void signIn(mcpLoginCallback(window.location.search))
               }}
             >
               Start sketching
@@ -131,10 +146,7 @@ export function LandingPage() {
                 <HugeiconsIcon icon={ArrowRight01Icon} data-icon="inline-end" />
               )}
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Works with Codex and OpenCode.
-            </p>
-            {failed && (
+            {(failed || (authError && !pending)) && (
               <Alert variant="destructive" className="max-w-sm">
                 <AlertDescription>
                   Sign-in could not be completed. Please try again.

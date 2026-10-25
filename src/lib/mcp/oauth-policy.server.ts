@@ -9,7 +9,7 @@ import { appMcpResource, MCP_SCOPES, resourceProjectId } from "./config"
 
 export function projectOAuthProvider(database: Database, origin: string) {
   return oauthProvider({
-    loginPage: "/login",
+    loginPage: "/",
     consentPage: "/api/mcp/consent",
     scopes: [...MCP_SCOPES],
     grantTypes: ["authorization_code", "refresh_token"],

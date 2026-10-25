@@ -4,7 +4,7 @@ export function mcpLoginCallback(search: string) {
   // The OAuth provider verifies the original signed oauth_query on sign-in.
   // Resume authorization explicitly after the external provider callback, even
   // if that provider cannot restore Better Auth's OAuth-server context.
-  for (const key of ["sig", "exp", "ba_iat", "ba_param", "ba_pl"])
+  for (const key of ["sig", "exp", "ba_iat", "ba_param", "ba_pl", "error"])
     query.delete(key)
   const prompts = (query.get("prompt") ?? "")
     .split(" ")

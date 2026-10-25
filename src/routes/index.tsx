@@ -17,7 +17,15 @@ import { Spinner } from "@/components/ui/spinner"
 import { createProject, getProjects } from "@/lib/projects/project.functions"
 
 export const Route = createFileRoute("/")({
-  loader: ({ context }) => (context.user ? getProjects() : []),
+  validateSearch: (
+    search: Record<string, unknown>
+  ): { error?: string; sig?: string } => ({
+    error: typeof search.error === "string" ? search.error : undefined,
+    sig: typeof search.sig === "string" ? search.sig : undefined,
+  }),
+  loaderDeps: ({ search }) => ({ signIn: Boolean(search.sig) }),
+  loader: ({ context, deps }) =>
+    context.user && !deps.signIn ? getProjects() : [],
   head: () => ({
     meta: [
       {
@@ -32,7 +40,8 @@ export const Route = createFileRoute("/")({
 
 function HomePage() {
   const { user } = Route.useRouteContext()
-  return user ? <ProjectsPage /> : <LandingPage />
+  const { sig, error } = Route.useSearch()
+  return user && !sig ? <ProjectsPage /> : <LandingPage authError={error} />
 }
 
 function ProjectsPage() {

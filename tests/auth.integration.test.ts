@@ -140,6 +140,8 @@ describe.skipIf(!databaseURL)(
     }
 
     async function begin(oauthQuery?: string) {
+      const errorQuery = new URLSearchParams(oauthQuery ?? "")
+      errorQuery.set("error", "sign_in_failed")
       const response = await auth.handler(
         new Request(`${baseURL}/api/auth/sign-in/social`, {
           method: "POST",
@@ -147,7 +149,7 @@ describe.skipIf(!databaseURL)(
           body: JSON.stringify({
             provider: "onionrings",
             callbackURL: mcpLoginCallback(oauthQuery ?? ""),
-            errorCallbackURL: "/login",
+            errorCallbackURL: `/?${errorQuery}`,
             oauth_query: oauthQuery,
           }),
         })
@@ -275,7 +277,7 @@ describe.skipIf(!databaseURL)(
     test("a matching email never implicitly links a different external subject", async () => {
       const response = await complete("different-subject", "first@example.com")
       expect(new URL(response.headers.get("location")!, baseURL).pathname).toBe(
-        "/login"
+        "/"
       )
       expect(await db.select().from(schema.account)).toHaveLength(1)
       expect(cookies(response)).not.toContain("session_token")
@@ -306,7 +308,7 @@ describe.skipIf(!databaseURL)(
         )
         expect(
           new URL(response.headers.get("location")!, baseURL).pathname
-        ).toBe("/login")
+        ).toBe("/")
         expect(cookies(response)).not.toContain("session_token")
       }
       expect(await db.select().from(schema.account)).toHaveLength(
@@ -314,7 +316,7 @@ describe.skipIf(!databaseURL)(
       )
     })
 
-    test("consent denial returns to login without exchanging a code", async () => {
+    test("consent denial returns to the landing without exchanging a code", async () => {
       const { authorizationURL, cookie } = await begin()
       const count = exchanges
       const url = new URL(`${baseURL}/api/auth/callback/onionrings`)
@@ -324,7 +326,7 @@ describe.skipIf(!databaseURL)(
         new Request(url, { headers: { Cookie: cookie } })
       )
       expect(new URL(response.headers.get("location")!, baseURL).pathname).toBe(
-        "/login"
+        "/"
       )
       expect(exchanges).toBe(count)
     })
@@ -337,7 +339,7 @@ describe.skipIf(!databaseURL)(
         )
       )
       expect(new URL(invalid.headers.get("location")!, baseURL).pathname).toBe(
-        "/login"
+        "/"
       )
 
       const { authorizationURL, cookie } = await begin()
@@ -351,7 +353,7 @@ describe.skipIf(!databaseURL)(
         new Request(url, { headers: { Cookie: cookie } })
       )
       expect(new URL(expired.headers.get("location")!, baseURL).pathname).toBe(
-        "/login"
+        "/"
       )
       expect(exchanges).toBe(count)
     })
@@ -477,7 +479,7 @@ describe.skipIf(!databaseURL)(
           })
         )
         const login = new URL(anonymous.headers.get("location")!, baseURL)
-        expect(login.pathname).toBe("/login")
+        expect(login.pathname).toBe("/")
         const signed = login.search.slice(1)
         expect(
           await verifyOAuthQueryParams(
@@ -485,6 +487,26 @@ describe.skipIf(!databaseURL)(
             "integration-test-app-secret-at-least-32-characters"
           )
         ).toBe(true)
+        const attempt = await begin(signed)
+        const deniedURL = new URL(`${baseURL}/api/auth/callback/onionrings`)
+        deniedURL.searchParams.set(
+          "state",
+          attempt.authorizationURL.searchParams.get("state")!
+        )
+        deniedURL.searchParams.set("error", "access_denied")
+        const denied = await auth.handler(
+          new Request(deniedURL, { headers: { Cookie: attempt.cookie } })
+        )
+        const recovery = new URL(denied.headers.get("location")!, baseURL)
+        expect(recovery.pathname).toBe("/")
+        expect(recovery.searchParams.get("sig")).toBe(
+          login.searchParams.get("sig")
+        )
+        expect(recovery.searchParams.has("error")).toBe(true)
+        const callback = new URL(mcpLoginCallback(recovery.search), baseURL)
+        expect(callback.pathname).toBe("/api/auth/oauth2/authorize")
+        expect(callback.searchParams.get("state")).toBe("mcp-login-state")
+        expect(callback.searchParams.has("error")).toBe(false)
         let response = await complete(
           "mcp-owner",
           "mcp-owner@example.test",

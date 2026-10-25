@@ -33,7 +33,7 @@ export function AccountMenu({ user }: { user: AccountUser }) {
     try {
       const result = await authClient.signOut()
       if (result.error) throw new Error("Sign-out failed")
-      window.location.assign("/login")
+      window.location.assign("/")
     } catch {
       setFailed(true)
       setPending(false)

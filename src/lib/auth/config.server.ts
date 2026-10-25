@@ -66,7 +66,7 @@ export function createAppAuth(
       useSecureCookies: env.production || env.baseURL.startsWith("https:"),
       defaultCookieAttributes: { httpOnly: true, sameSite: "lax" },
     },
-    onAPIError: { errorURL: `${env.baseURL}/login` },
+    onAPIError: { errorURL: `${env.baseURL}/?error=sign_in_failed` },
     // Do not emit callback parameters or provider error responses into logs.
     logger: { disabled: true },
     plugins: [

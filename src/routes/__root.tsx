@@ -18,16 +18,13 @@ export const Route = createRootRoute({
     if (!user && location.pathname !== "/" && location.pathname !== "/login") {
       if (location.pathname === "/mcp/consent")
         throw redirect({
-          href: `/login?${new URLSearchParams(location.searchStr).get("oauth_query") ?? location.searchStr.slice(1)}`,
+          href: `/?${new URLSearchParams(location.searchStr).get("oauth_query") ?? location.searchStr.slice(1)}`,
         })
       throw redirect({
-        to: "/login",
-        search: { error: undefined },
+        to: "/",
+        search: { error: undefined, sig: undefined },
         replace: true,
       })
-    }
-    if (user && location.pathname === "/login") {
-      throw redirect({ to: "/", replace: true })
     }
     return { user }
   },

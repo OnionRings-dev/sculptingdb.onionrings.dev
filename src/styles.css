@@ -26,6 +26,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+    --color-beta: var(--beta);
+    --color-beta-foreground: var(--beta-foreground);
     --color-data-type-string: var(--data-type-string);
     --color-data-type-number: var(--data-type-number);
     --color-data-type-boolean: var(--data-type-boolean);
@@ -79,6 +81,8 @@
 }
 
 :root {
+    --beta: var(--color-teal-100);
+    --beta-foreground: var(--color-teal-800);
     --diagram-edge-selected: oklch(0.50 0.20 255);
     --data-type-string: oklch(0.43 0.12 150);
     --data-type-number: oklch(0.48 0.17 255);
@@ -125,6 +129,8 @@
 }
 
 .dark {
+    --beta: var(--color-teal-950);
+    --beta-foreground: var(--color-teal-300);
     --diagram-edge-selected: oklch(0.78 0.13 250);
     --data-type-string: oklch(0.77 0.13 150);
     --data-type-number: oklch(0.78 0.12 250);

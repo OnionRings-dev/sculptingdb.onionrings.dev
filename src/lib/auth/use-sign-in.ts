@@ -13,10 +13,12 @@ export function useSignIn() {
     setFailed(false)
 
     try {
+      const errorQuery = new URLSearchParams(window.location.search)
+      errorQuery.set("error", "sign_in_failed")
       const result = await authClient.signIn.social({
         provider: "onionrings",
         callbackURL,
-        errorCallbackURL: "/login",
+        errorCallbackURL: `/?${errorQuery}`,
       })
       if (result.error || !result.data.url) throw new Error("Sign-in failed")
     } catch {

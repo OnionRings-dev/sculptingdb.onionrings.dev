@@ -64,9 +64,11 @@ in this repository. Never use `VITE_*` variables for these values.
 - Anonymous visitors to `/` see a minimal landing page with an example schema
   and buttons that start OnionRings sign-in directly. Project data is loaded
   only for authenticated visitors.
-  Other anonymous page requests, including unknown paths, redirect to `/login`.
-  The login page shows one centered **Login** button, plus a recoverable message
-  if sign-in fails. Authenticated users visiting `/login` return to `/`.
+  Other anonymous page requests, including unknown paths, redirect to `/`.
+  Sign-in failures return to the landing with a recoverable message. `/login`
+  is a compatibility redirect to `/`, preserving query parameters for old links
+  and in-flight callbacks. MCP sign-in uses the landing and preserves its signed
+  authorization request, including during a retry.
 - All users authorized by OnionRings can create a local user at first login.
   There is no invitation or role restriction yet. The provider's allowed-provider
   and consent policies still apply.
@@ -97,8 +99,8 @@ in this repository. Never use `VITE_*` variables for these values.
   New server functions that expose app data or mutate it must call
   `requireUser(getRequestHeaders())` from `src/lib/auth/auth.server.ts` before doing
   their work. Router guards do not authorize server functions.
-- **Log out** deletes the local app session and returns to `/login`. It leaves
-  the OnionRings SSO session active. Provider logout, back-channel logout, token
+- **Log out** deletes the local app session and returns to the landing at `/`.
+  It leaves the OnionRings SSO session active. Provider logout, back-channel logout, token
   refresh and cross-application logout are not implemented.
 
 ## Schema and migrations
@@ -279,7 +281,7 @@ conflicts, exclusive leases, permission changes, revocation and live events.
 
 Live identity-provider verification still requires registered credentials: sign in with OnionRings,
 complete consent, return to the app, confirm access to `/`, and log out. Also deny
-consent and confirm recovery on `/login`. Passing the simulated tests and compilation
+consent and confirm recovery on the landing. Passing the simulated tests and compilation
 does not prove that the real client registration and selected IDP providers work.
 
 ## References
