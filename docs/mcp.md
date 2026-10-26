@@ -62,15 +62,17 @@ project switches, diagram updates and disconnect, without model inference.
 Ask the agent to list available projects, choose one, inspect the diagram and
 make the desired changes. Server instructions and JSON schemas describe the tool contract:
 
-| Tool               | Purpose                                                                                               |
-| ------------------ | ----------------------------------------------------------------------------------------------------- |
-| `list_projects`    | List projects explicitly enabled for this client and still accessible to its user.                    |
-| `open_project`     | Acquire the project's MCP lease and return the current graph, revision and effective edit permission. |
-| `get_diagram`      | Read the complete current graph.                                                                      |
-| `apply_changes`    | Apply 1–100 ordered edits atomically, with one summary and history entry.                             |
-| `list_history`     | Read revision metadata, with pages of up to 50 entries.                                               |
-| `restore_revision` | Restore an earlier snapshot by appending a new revision.                                              |
-| `release_project`  | Release the exact lease so another client can use the project.                                        |
+| Tool               | Purpose                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `list_projects`    | List projects explicitly enabled for this client and still accessible to its user.                           |
+| `open_project`     | Acquire the project's MCP lease and return the current graph, revision and effective edit permission.        |
+| `get_diagram`      | Read the complete current graph, including saved node coordinates.                                           |
+| `get_diagram_view` | Return a PNG overview, saved coordinates, estimated node bounds and overlaps; optionally zoom into a region. |
+| `arrange_diagram`  | Organize all nodes with the canvas layout engine as one history entry.                                       |
+| `apply_changes`    | Apply 1–100 ordered edits atomically, with one summary and history entry.                                    |
+| `list_history`     | Read revision metadata, with pages of up to 50 entries.                                                      |
+| `restore_revision` | Restore an earlier snapshot by appending a new revision.                                                     |
+| `release_project`  | Release the exact lease so another client can use the project.                                               |
 
 Every project tool requires an explicit `projectId`; there is no global active
 project. `list_projects` needs no lease. All tools after `open_project` also
@@ -93,6 +95,44 @@ revision instead of duplicating the change. A changed payload requires a new ID.
 On `conflict`, read the graph, reconsider the change and submit a new request ID.
 An invalid batch rolls back completely. A `lease_expired` response requires
 `open_project` again; `project_busy` means another client holds the lease.
+
+## Let the agent inspect and organize the canvas
+
+`open_project` and `get_diagram` already return `positionX` and `positionY` for
+every entity. `apply_changes` accepts `move_entities` to place a chosen subset
+explicitly, without replacing fields or relationships. This is useful for
+instructions such as keeping User near Profile or separating domain areas.
+
+`get_diagram_view` adds a PNG image and spatial metadata: node IDs/names, saved
+positions, estimated width/height and primary-key anchor, whole-diagram bounds,
+and overlapping node pairs. At most 100 overlap pairs are listed; `overlapCount`
+and `overlapsTruncated` report larger cases. Coordinates are canvas units, with
+x increasing to the right and y downwards. The image is reconstructed from saved
+data using the same curved cable geometry as the canvas. It is not a browser
+screenshot and does not include the user's pan, zoom or selection. Card dimensions
+are estimates based on the current UI's 240px cards and attribute rows.
+
+Images default to 1600×1000 pixels, with configurable `width` (320–1600) and
+`height` (240–1000). Supply `bounds: { x, y, width, height }` in canvas units to
+inspect a crowded area at readable size. Graph access and a valid lease are
+required even for image requests. View members can use this tool. Image rendering
+runs on the server with bundled WASM and font assets; no browser or external
+image-generation service is needed.
+
+`arrange_diagram` takes the usual lease, `expectedRevision` and UUID `requestId`.
+Optional settings are `direction` (`RIGHT`, `LEFT`, `DOWN`, `UP`; default `RIGHT`),
+`nodeSpacing` (40–400; default 80) and `layerSpacing` (80–800; default 160).
+It uses the same ELK layered layout graph as the canvas button, with estimated
+card dimensions. It moves nodes only and records a single `mcp` history entry
+when positions change. Empty or unchanged layouts do not add history.
+
+Layout calculation runs in an isolated worker with a 30-second limit, outside
+the database transaction. Before saving, the server rechecks current access,
+lease and revision. A conflict or calculation failure moves no nodes. Exact
+retries return the original result even if later edits have advanced the graph;
+changing layout options requires a new request ID. Use `get_diagram_view` after
+arranging to inspect the result, and `move_entities` for deliberate refinements.
+Both tools work with the web app closed and support the shared and legacy endpoints.
 
 ## Authorization and updates
 
@@ -154,7 +194,7 @@ errors expose structured codes without database details. Model descriptions are
 untrusted data. Proof-bound DPoP tokens are rejected by the resource handler;
 these clients use bearer tokens.
 
-MCP Apps/widgets, embedded chat, automatic layout, multi-client editing and
+MCP Apps/widgets, embedded chat, browser-exact screenshots, multi-client editing and
 history/receipt retention policies are outside this first version. The browser
 editor is the interactive visualization; conversation stays in Codex/OpenCode.
 

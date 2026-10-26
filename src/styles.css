@@ -243,6 +243,11 @@
   --data-type-enum: oklch(0.92 0.08 350);
 }
 
+.diagram-editor .react-flow__edge-path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .diagram-editor .react-flow__edge.selected .react-flow__edge-path {
   stroke-width: 3;
 }

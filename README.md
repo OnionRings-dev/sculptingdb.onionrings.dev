@@ -54,6 +54,7 @@ and set **Compose Path** to `./compose.yaml`.
    generates its internal connection URL from `POSTGRES_PASSWORD`, including
    URL encoding. Register the production OnionRings client with callback
    `https://sculpting.example.com/api/auth/callback/onionrings`.
+
 2. Enable **Isolated Deployments** so the app, migration job, database and Dokploy's
    Traefik can communicate on the deployment's network. No external network name
    or manual Traefik labels are needed. Use **Preview Compose** to check the
@@ -329,6 +330,14 @@ merged by client name: two clients named Codex can be separate installations.
 Codex starts OAuth from `mcp add`, so the setup instructions do not automatically
 run a second `mcp login`. That command is only a fallback if authorization is
 still required.
+
+Agents can use `get_diagram_view` for a PNG overview with coordinates, estimated
+card bounds and overlap detection, and `arrange_diagram` to organize nodes using
+the canvas layout engine. Layout direction and spacing are configurable; a save
+creates one history entry and respects revision conflicts. `move_entities` in
+`apply_changes` supports deliberate placement of individual nodes or groups.
+Views and automatic layout run on the server without an open browser; image
+geometry is estimated rather than a screenshot of the current viewport.
 
 Apply all migrations with `bun run db:migrate`, including
 `0003_zippy_cable.sql` for account-level client connections. No additional

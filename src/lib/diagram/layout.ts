@@ -7,22 +7,30 @@ export type LayoutGeometry = {
   height: number
   anchorY: number
 }
+export type LayoutOptions = {
+  direction?: "RIGHT" | "LEFT" | "DOWN" | "UP"
+  nodeSpacing?: number
+  layerSpacing?: number
+}
 
 export function createLayoutGraph(
   snapshot: DiagramSnapshot,
-  geometry: Array<LayoutGeometry>
+  geometry: Array<LayoutGeometry>,
+  options: LayoutOptions = {}
 ): ElkNode {
   const measured = new Map(geometry.map((node) => [node.id, node]))
   return {
     id: "diagram",
     layoutOptions: {
       "elk.algorithm": "layered",
-      "elk.direction": "RIGHT",
+      "elk.direction": options.direction ?? "RIGHT",
       "elk.edgeRouting": "ORTHOGONAL",
       "elk.randomSeed": "1",
       "elk.padding": "[top=40,left=40,bottom=40,right=40]",
-      "elk.spacing.nodeNode": "80",
-      "elk.layered.spacing.nodeNodeBetweenLayers": "160",
+      "elk.spacing.nodeNode": String(options.nodeSpacing ?? 80),
+      "elk.layered.spacing.nodeNodeBetweenLayers": String(
+        options.layerSpacing ?? 160
+      ),
       "elk.spacing.componentComponent": "100",
       "elk.spacing.edgeNode": "32",
       "elk.layered.spacing.edgeNodeBetweenLayers": "32",

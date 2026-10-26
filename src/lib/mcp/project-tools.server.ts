@@ -14,6 +14,7 @@ import {
   activeConnection,
   projectAccess,
 } from "./access.server"
+import { arrangeServerDiagram } from "@/lib/diagram/auto-layout.server"
 import { LEASE_DURATION_MS } from "./config"
 
 export const principalSchema = z.object({
@@ -242,40 +243,62 @@ export async function changeProjectDiagram(
   input: unknown
 ) {
   const data = mcpChangeSchema.parse(input)
-  const payloadHash = createHash("sha256")
-    .update(
-      JSON.stringify({
-        expectedRevision: data.expectedRevision,
-        command: data.command,
-      })
+  const payloadHash = hashMutation({
+    expectedRevision: data.expectedRevision,
+    command: data.command,
+  })
+  return saveProjectChange(database, principal, data, payloadHash)
+}
+
+function hashMutation(payload: object) {
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex")
+}
+
+async function mutationReceipt(
+  transaction: Executor,
+  principal: McpPrincipal,
+  requestId: string,
+  payloadHash: string
+) {
+  const existing = (
+    await transaction
+      .select()
+      .from(schema.mcpMutation)
+      .where(
+        and(
+          eq(schema.mcpMutation.projectId, principal.projectId),
+          eq(schema.mcpMutation.authorizationId, principal.authorizationId),
+          eq(schema.mcpMutation.requestId, requestId)
+        )
+      )
+  ).at(0)
+  if (existing && existing.payloadHash !== payloadHash)
+    throw new McpOperationError(
+      "request_id_reused",
+      "Use a new requestId for a different change."
     )
-    .digest("hex")
+  return existing ? { revision: existing.revision, replayed: true } : null
+}
+
+async function saveProjectChange(
+  database: Database,
+  principal: McpPrincipal,
+  data: z.infer<typeof mcpChangeSchema>,
+  payloadHash: string
+) {
   return withLease(
     database,
     principal,
     data.leaseId,
     true,
     async (transaction) => {
-      const existing = (
-        await transaction
-          .select()
-          .from(schema.mcpMutation)
-          .where(
-            and(
-              eq(schema.mcpMutation.projectId, principal.projectId),
-              eq(schema.mcpMutation.authorizationId, principal.authorizationId),
-              eq(schema.mcpMutation.requestId, data.requestId)
-            )
-          )
-      ).at(0)
-      if (existing) {
-        if (existing.payloadHash !== payloadHash)
-          throw new McpOperationError(
-            "request_id_reused",
-            "Use a new requestId for a different change."
-          )
-        return { revision: existing.revision, replayed: true }
-      }
+      const existing = await mutationReceipt(
+        transaction,
+        principal,
+        data.requestId,
+        payloadHash
+      )
+      if (existing) return existing
       const result = await changeDiagramTransaction(
         transaction,
         principal.userId,
@@ -305,6 +328,101 @@ export async function changeProjectDiagram(
     }
   )
 }
+export const arrangeRequestSchema = z
+  .object({
+    leaseId: z.uuid(),
+    requestId: z.uuid(),
+    expectedRevision: z.number().int().nonnegative(),
+    direction: z.enum(["RIGHT", "LEFT", "DOWN", "UP"]).default("RIGHT"),
+    nodeSpacing: z.number().int().min(40).max(400).default(80),
+    layerSpacing: z.number().int().min(80).max(800).default(160),
+  })
+  .strict()
+
+export async function arrangeProjectDiagram(
+  database: Database,
+  principal: McpPrincipal,
+  input: unknown
+) {
+  const data = arrangeRequestSchema.parse(input)
+  const payloadHash = hashMutation({
+    operation: "arrange",
+    expectedRevision: data.expectedRevision,
+    direction: data.direction,
+    nodeSpacing: data.nodeSpacing,
+    layerSpacing: data.layerSpacing,
+  })
+  // Read and check the receipt before calculating. Exact retries must work even
+  // after the first arrangement advanced the revision or other edits followed it.
+  const prepared = await withLease(
+    database,
+    principal,
+    data.leaseId,
+    true,
+    async (tx) => {
+      const existing = await mutationReceipt(
+        tx,
+        principal,
+        data.requestId,
+        payloadHash
+      )
+      if (existing) return { done: existing, snapshot: null }
+      const current = (await readEditor(
+        tx,
+        principal.userId,
+        principal.projectId
+      ))!
+      if (current.revision !== data.expectedRevision)
+        throw new McpOperationError(
+          "conflict",
+          "The diagram changed. Read it again and use a new requestId.",
+          current.revision
+        )
+      if (!current.snapshot.entities.length) {
+        await tx.insert(schema.mcpMutation).values({
+          projectId: principal.projectId,
+          authorizationId: principal.authorizationId,
+          requestId: data.requestId,
+          payloadHash,
+          revision: current.revision,
+        })
+        return {
+          done: { revision: current.revision, replayed: false },
+          snapshot: null,
+        }
+      }
+      return { done: null, snapshot: current.snapshot }
+    }
+  )
+  if (prepared.done) return prepared.done
+  let positions: Array<{ id: string; x: number; y: number }>
+  try {
+    positions = await arrangeServerDiagram(prepared.snapshot, data)
+  } catch {
+    throw new McpOperationError(
+      "layout_failed",
+      "Could not calculate a layout. Try a different direction or arrange smaller groups manually with move_entities."
+    )
+  }
+  // Compute outside the database transaction, then atomically recheck lease,
+  // access and revision before moving any nodes. Concurrent manual edits win.
+  return saveProjectChange(
+    database,
+    principal,
+    {
+      leaseId: data.leaseId,
+      requestId: data.requestId,
+      expectedRevision: data.expectedRevision,
+      command: {
+        type: "batch",
+        summary: "Arranged diagram",
+        commands: [{ type: "move_entities", positions }],
+      },
+    },
+    payloadHash
+  )
+}
+
 export async function releaseProject(
   database: Database,
   principal: McpPrincipal,

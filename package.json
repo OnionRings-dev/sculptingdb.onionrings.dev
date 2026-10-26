@@ -30,6 +30,7 @@
     "@hugeicons/core-free-icons": "^4.3.5",
     "@hugeicons/react": "^1.1.10",
     "@modelcontextprotocol/server": "^2",
+    "@resvg/resvg-wasm": "^2.6.2",
     "@tailwindcss/vite": "^4",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-query": "^5.104.5",

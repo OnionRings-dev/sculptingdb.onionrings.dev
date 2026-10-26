@@ -652,7 +652,188 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
     expect(
       await setClientProjectAccess(db, memberId, projectId, id, true)
     ).toBe(false)
-    expect((await connectedMember.client.listTools()).tools).toHaveLength(7)
+    expect((await connectedMember.client.listTools()).tools).toHaveLength(9)
+  })
+
+  for (const mode of ["modern", "legacy"] as const)
+    test(`${mode} app clients see PNG layouts and arrange them as one retry-safe history entry`, async () => {
+      const { client, clientId } = await connect(mode, ownerId, undefined, true)
+      await setClientProjectAccess(
+        db,
+        ownerId,
+        projectId,
+        await connectionId(clientId),
+        true
+      )
+      const opened = await call(client, "open_project", { projectId })
+      const leaseId = opened.data.leaseId
+      const first = entity(),
+        second = { ...entity(), name: "Order" }
+      expect(
+        (
+          await call(client, "apply_changes", {
+            projectId,
+            leaseId,
+            expectedRevision: 0,
+            requestId: randomUUID(),
+            summary: "Two overlapping nodes",
+            changes: [
+              { type: "upsert_entity", entity: first, attributes: [] },
+              { type: "upsert_entity", entity: second, attributes: [] },
+            ],
+          })
+        ).error
+      ).toBe(false)
+      const image = await client.callTool({
+        name: "get_diagram_view",
+        arguments: { projectId, leaseId, width: 640, height: 480 },
+      })
+      expect(image.isError).not.toBe(true)
+      expect(image.structuredContent).toMatchObject({
+        revision: 2,
+        overlapCount: 1,
+        geometrySource: "estimated",
+      })
+      const block = image.content.find((content) => content.type === "image")
+      expect(block?.type).toBe("image")
+      if (!block) throw new Error("Missing PNG")
+      expect(block.mimeType).toBe("image/png")
+      expect(
+        Buffer.from(block.data, "base64").subarray(0, 8).toString("hex")
+      ).toBe("89504e470d0a1a0a")
+      const before = (await loadDiagram(db, ownerId, projectId))!
+      const args = {
+        projectId,
+        leaseId,
+        requestId: randomUUID(),
+        expectedRevision: 2,
+        direction: "DOWN",
+      }
+      expect(await call(client, "arrange_diagram", args)).toMatchObject({
+        error: false,
+        data: { revision: 3, replayed: false },
+      })
+      expect(await call(client, "arrange_diagram", args)).toMatchObject({
+        error: false,
+        data: { revision: 3, replayed: true },
+      })
+      const after = (await loadDiagram(db, ownerId, projectId))!
+      expect(after.history).toHaveLength(before.history.length + 1)
+      expect(after.history[0]).toMatchObject({
+        origin: "mcp",
+        summary: "Arranged diagram",
+      })
+      expect(after.snapshot.attributes).toEqual(before.snapshot.attributes)
+      expect(after.snapshot.relationships).toEqual(
+        before.snapshot.relationships
+      )
+      expect(
+        after.snapshot.entities.map(
+          ({ positionX, positionY, ...entity }) => entity
+        )
+      ).toEqual(
+        before.snapshot.entities.map(
+          ({ positionX, positionY, ...entity }) => entity
+        )
+      )
+      const view = await client.callTool({
+        name: "get_diagram_view",
+        arguments: { projectId, leaseId, width: 320, height: 240 },
+      })
+      expect(view.structuredContent).toMatchObject({
+        revision: 3,
+        overlapCount: 0,
+      })
+      // A later manual edit must survive a retry of the already-completed layout.
+      await changeDiagram(db, ownerId, {
+        projectId,
+        expectedRevision: 3,
+        command: {
+          type: "move_entities",
+          positions: [{ id: first.id, x: -250, y: -100 }],
+        },
+      })
+      expect(await call(client, "arrange_diagram", args)).toMatchObject({
+        error: false,
+        data: { revision: 3, replayed: true },
+      })
+      expect((await loadDiagram(db, ownerId, projectId))!.revision).toBe(4)
+      expect(
+        (await call(client, "arrange_diagram", { ...args, direction: "RIGHT" }))
+          .data.code
+      ).toBe("request_id_reused")
+      expect(
+        (
+          await call(client, "arrange_diagram", {
+            ...args,
+            requestId: randomUUID(),
+          })
+        ).data.code
+      ).toBe("conflict")
+      expect(
+        (
+          await call(client, "get_diagram_view", {
+            projectId: otherId,
+            leaseId,
+          })
+        ).data.code
+      ).toBe("access_denied")
+      await updateProjectMember(db, ownerId, {
+        projectId,
+        userId: memberId,
+        role: "view",
+      })
+      const reader = await connect("modern", memberId, undefined, true)
+      await setClientProjectAccess(
+        db,
+        memberId,
+        projectId,
+        await connectionId(reader.clientId, memberId),
+        true
+      )
+      // Release the owner's lease before a View member reads this project.
+      await call(client, "release_project", { projectId, leaseId })
+      const readLease = (
+        await call(reader.client, "open_project", { projectId })
+      ).data.leaseId
+      expect(
+        (
+          await reader.client.callTool({
+            name: "get_diagram_view",
+            arguments: {
+              projectId,
+              leaseId: readLease,
+              width: 320,
+              height: 240,
+            },
+          })
+        ).isError
+      ).not.toBe(true)
+      expect(
+        (
+          await call(reader.client, "arrange_diagram", {
+            projectId,
+            leaseId: readLease,
+            expectedRevision: 4,
+            requestId: randomUUID(),
+          })
+        ).data.code
+      ).toBe("read_only")
+    })
+
+  test("arranging an empty graph is an idempotent no-op without a history entry", async () => {
+    const { client } = await connect()
+    const { leaseId } = (await call(client, "open_project")).data
+    const args = { leaseId, expectedRevision: 0, requestId: randomUUID() }
+    expect((await call(client, "arrange_diagram", args)).data).toEqual({
+      revision: 0,
+      replayed: false,
+    })
+    expect((await call(client, "arrange_diagram", args)).data).toEqual({
+      revision: 0,
+      replayed: true,
+    })
+    expect((await loadDiagram(db, ownerId, projectId))!.history).toHaveLength(0)
   })
 
   const entity = () => ({
@@ -771,7 +952,9 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
         (await client.listTools()).tools.map((tool) => tool.name).sort()
       ).toEqual([
         "apply_changes",
+        "arrange_diagram",
         "get_diagram",
+        "get_diagram_view",
         "list_history",
         "open_project",
         "release_project",
