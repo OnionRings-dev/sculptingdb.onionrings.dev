@@ -47,12 +47,19 @@ function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+function CardTitle({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<"div"> & { size?: "default" | "lg" }) {
   return (
     <div
       data-slot="card-title"
       className={cn(
-        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
+        "font-heading font-medium",
+        size === "lg"
+          ? "text-lg leading-5"
+          : "text-base leading-snug group-data-[size=sm]/card:text-sm",
         className
       )}
       {...props}

@@ -14,7 +14,7 @@ export type RelationshipFlowEdge = Edge<
   { relationship: Relationship; lane?: number },
   "relationship"
 >
-const labelStyle = { fill: "var(--muted-foreground)", fontSize: 11 }
+const labelStyle = { fill: "var(--muted-foreground)", fontSize: 14 }
 const labelBgStyle = { fill: "var(--background)" }
 const selectedLabelStyle = {
   ...labelStyle,
@@ -70,30 +70,34 @@ export const RelationshipEdge = memo(function RelationshipEdgeView(
         interactionWidth={24}
         style={props.style}
       />
-      <EdgeText
-        x={cable.sourceLabel.x}
-        y={cable.sourceLabel.y}
-        label={
-          cardinalities.find(
-            ({ value }) => value === relationship.sourceCardinality
-          )?.label
-        }
-        labelStyle={edgeLabelStyle}
-        labelBgStyle={labelBgStyle}
-        labelBgPadding={props.selected ? selectedLabelBgPadding : undefined}
-      />
-      <EdgeText
-        x={cable.targetLabel.x}
-        y={cable.targetLabel.y}
-        label={
-          cardinalities.find(
-            ({ value }) => value === relationship.targetCardinality
-          )?.label
-        }
-        labelStyle={edgeLabelStyle}
-        labelBgStyle={labelBgStyle}
-        labelBgPadding={props.selected ? selectedLabelBgPadding : undefined}
-      />
+      {props.selected && (
+        <>
+          <EdgeText
+            x={cable.sourceLabel.x}
+            y={cable.sourceLabel.y}
+            label={
+              cardinalities.find(
+                ({ value }) => value === relationship.sourceCardinality
+              )?.label
+            }
+            labelStyle={selectedLabelStyle}
+            labelBgStyle={labelBgStyle}
+            labelBgPadding={selectedLabelBgPadding}
+          />
+          <EdgeText
+            x={cable.targetLabel.x}
+            y={cable.targetLabel.y}
+            label={
+              cardinalities.find(
+                ({ value }) => value === relationship.targetCardinality
+              )?.label
+            }
+            labelStyle={selectedLabelStyle}
+            labelBgStyle={labelBgStyle}
+            labelBgPadding={selectedLabelBgPadding}
+          />
+        </>
+      )}
       {relationship.label && (
         <EdgeText
           x={cable.label.x}

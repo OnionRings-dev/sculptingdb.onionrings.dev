@@ -17,6 +17,16 @@ import {
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
+  Combobox,
+  ComboboxCollection,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox"
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -84,30 +94,50 @@ export function RelationshipDialog({
                     <FieldLabel htmlFor={`${side}-entity`}>
                       {side === "source" ? "From" : "To"}
                     </FieldLabel>
-                    <Select
+                    <Combobox
                       items={entityItems}
-                      value={relationship[`${side}EntityId`]}
-                      onValueChange={(value) => {
-                        if (value)
-                          setRelationship({
-                            ...relationship,
-                            [`${side}EntityId`]: value,
-                          })
+                      value={
+                        entityItems.find(
+                          (item) =>
+                            item.value === relationship[`${side}EntityId`]
+                        ) ?? null
+                      }
+                      itemToStringLabel={(item) => item.label}
+                      itemToStringValue={(item) => item.value}
+                      isItemEqualToValue={(item, value) =>
+                        item.value === value.value
+                      }
+                      autoHighlight
+                      disabled={pending}
+                      onValueChange={(item) => {
+                        if (item)
+                          setRelationship((current) => ({
+                            ...current,
+                            [`${side}EntityId`]: item.value,
+                          }))
                       }}
                     >
-                      <SelectTrigger id={`${side}-entity`} className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {entityItems.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
+                      <ComboboxInput
+                        id={`${side}-entity`}
+                        placeholder="Search entities…"
+                        className="w-full"
+                        disabled={pending}
+                      />
+                      <ComboboxContent>
+                        <ComboboxEmpty>No entities found.</ComboboxEmpty>
+                        <ComboboxList>
+                          <ComboboxGroup>
+                            <ComboboxCollection>
+                              {(item: (typeof entityItems)[number]) => (
+                                <ComboboxItem key={item.value} value={item}>
+                                  <span className="truncate">{item.label}</span>
+                                </ComboboxItem>
+                              )}
+                            </ComboboxCollection>
+                          </ComboboxGroup>
+                        </ComboboxList>
+                      </ComboboxContent>
+                    </Combobox>
                   </Field>
                   <Field className="w-24">
                     <FieldLabel htmlFor={`${side}-cardinality`}>

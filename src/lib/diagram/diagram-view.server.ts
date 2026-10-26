@@ -58,8 +58,8 @@ const escape = (text: string) =>
 const shorten = (text: string, length: number) =>
   escape(text.length > length ? `${text.slice(0, length - 1)}…` : text)
 function label(x: number, y: number, text: string) {
-  const width = Math.min(text.length, 50) * 6 + 10
-  return `<g><rect x="${x - width / 2}" y="${y - 10}" width="${width}" height="16" rx="3" fill="#101010"/><text x="${x}" y="${y + 2}" text-anchor="middle" font-size="11" fill="#bdbdbd">${shorten(text, 50)}</text></g>`
+  const width = Math.min(text.length, 50) * 8 + 10
+  return `<g><rect x="${x - width / 2}" y="${y - 12}" width="${width}" height="20" rx="3" fill="#101010"/><text x="${x}" y="${y + 3}" text-anchor="middle" font-size="14" fill="#bdbdbd">${shorten(text, 50)}</text></g>`
 }
 
 export function diagramSvg(
@@ -121,7 +121,7 @@ export function diagramSvg(
       .filter((attribute) => attribute.entityId === node.id)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id))
     parts.push(
-      `<g transform="translate(${node.x},${node.y})"><rect width="${node.width}" height="${node.height}" rx="10" fill="#1c1c1c" stroke="#414141"/><text x="12" y="26" font-size="14" fill="#f5f5f5">${shorten(node.name, 30)}</text>`
+      `<g transform="translate(${node.x},${node.y})"><rect width="${node.width}" height="${node.height}" rx="10" fill="#1c1c1c" stroke="#414141"/><text x="12" y="28" font-size="18" font-weight="500" fill="#f5f5f5">${shorten(node.name, 23)}</text>`
     )
     if (attributes.length)
       parts.push(`<path d="M 0,44 H 240" stroke="#414141"/>`)

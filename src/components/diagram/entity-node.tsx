@@ -61,7 +61,7 @@ export const EntityNode = memo(function EntityNodeView({
       >
         <CardHeader className="relative">
           {!anchorId && <EntityHandles isConnectable={isConnectable} />}
-          <CardTitle className="truncate" title={data.entity.name}>
+          <CardTitle size="lg" className="truncate" title={data.entity.name}>
             {data.entity.name}
           </CardTitle>
         </CardHeader>
