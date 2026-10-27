@@ -53,7 +53,8 @@ and set **Compose Path** to `./compose.yaml`.
    `DATABASE_URL`, host ports and build-time secrets are not needed: Compose
    generates its internal connection URL from `POSTGRES_PASSWORD`, including
    URL encoding. Register the production OnionRings client with callback
-   `https://sculpting.example.com/api/auth/callback/onionrings`.
+   `https://sculpting.example.com/api/auth/callback/onionrings` and exact post-logout
+   callback `https://sculpting.example.com/`.
 
 2. Enable **Isolated Deployments** so the app, migration job, database and Dokploy's
    Traefik can communicate on the deployment's network. No external network name
@@ -147,7 +148,7 @@ https://auth.onionrings.dev/admin/ with these exact values:
 | Callback                         | `http://localhost:3000/api/auth/callback/onionrings`   |
 | Allowed authentication providers | Google, GitHub, or both, selected by the administrator |
 | Browser origins                  | Empty                                                  |
-| Post-logout callbacks            | Empty                                                  |
+| Post-logout callbacks            | `http://localhost:3000/`                               |
 | Back-channel logout URL          | Empty                                                  |
 | Require the session ID           | Disabled                                               |
 
@@ -157,7 +158,8 @@ callback. The destination after successful login is `/`.
 
 Production needs a separate client registration and credentials. Set
 `BETTER_AUTH_URL` to the production HTTPS origin, register
-`<PRODUCTION_ORIGIN>/api/auth/callback/onionrings`, and use a new application secret
+`<PRODUCTION_ORIGIN>/api/auth/callback/onionrings` and `<PRODUCTION_ORIGIN>/`
+(including the final slash), and use a new application secret
 and production PostgreSQL connection. The production origin has not been selected
 in this repository. Never use `VITE_*` variables for these values.
 
@@ -201,9 +203,72 @@ in this repository. Never use `VITE_*` variables for these values.
   New server functions that expose app data or mutate it must call
   `requireUser(getRequestHeaders())` from `src/lib/auth/auth.server.ts` before doing
   their work. Router guards do not authorize server functions.
-- **Log out** deletes the local app session and returns to the landing at `/`.
-  It leaves the OnionRings SSO session active. Provider logout, back-channel logout, token
-  refresh and cross-application logout are not implemented.
+- **Sign out** prepares the discovered end-session URL using this local session's
+  own verified ID token, deletes the local session with Better Auth's CSRF and
+  cookie protections, and navigates the browser to OnionRings. The exact registered
+  return URL is the existing anonymous landing `/`. Callback parameters cannot
+  override the endpoint, return URL or state. There is no logout success route or
+  extra application confirmation. Missing/mismatched hints retain the provider's
+  confirmation protections. An actual failure keeps a retry action available.
+- Verified callback credentials are captured in supported account/session database
+  hooks and encrypted in `session.onion_credentials` with `BETTER_AUTH_SECRET`.
+  This private field is neither writable by clients nor returned in session APIs.
+  The shared account's ID token is cleared rather than used as a device's hint.
+  Sign-out cancels the browser's pending login transactions; a callback finishing
+  late cannot restore usable credentials. No refresh flow or offline access is used.
+- Every server session check, including public `/api/auth/get-session` and protected
+  Better Auth endpoints, validates this session's access token against the trusted
+  discovered UserInfo endpoint and compares `sub` to the verified sign-in subject.
+  HTTP 401/403, token expiry, subject mismatch or a missing credential binding
+  deletes only the corresponding local session. Browser navigation returns to `/`;
+  protected application APIs return 401. Timeouts, network errors and provider
+  failures deny access with 503 while preserving credentials for retry. Discovery
+  metadata is cached for five minutes; successful UserInfo results are never cached.
+  Open tabs recheck on focus/visibility/pageshow. Browser diagram streams recheck
+  while streaming and stop on invalid sessions or provider failure.
+- Central/account/admin logout therefore takes effect at the next protected check
+  here, including after a tab regains focus. Other applications must perform the
+  same checks; there is no instant push logout guarantee. Other devices remain
+  signed in. Independent MCP OAuth grants, Google/GitHub sessions and offline
+  grants are unchanged. No back-channel receiver is required or added.
+
+### v0.1.3 logout rollout
+
+Apply `0004_clumsy_mattie_franklin.sql` with `bun run db:migrate` before deploying
+this code. It adds one nullable private session column without changing users,
+accounts, permissions or other sessions. Existing sessions have no binding and
+must sign in again; never backfill them from the shared account's latest tokens.
+Keep `BETTER_AUTH_SECRET` stable: it encrypts the new per-session bindings as well
+as existing OAuth tokens. No new environment variable or library upgrade is needed.
+
+Register **exactly** `http://localhost:3000/` in the development client's
+**Post-logout callbacks**, alongside its existing sign-in callback
+`http://localhost:3000/api/auth/callback/onionrings`. This means HTTP, host
+`localhost`, port `3000`, path `/`, no query, and the trailing slash. Production
+uses `new URL("/", BETTER_AUTH_URL).href`; for the documented deployment example,
+that is exactly `https://sculpting.example.com/`, with sign-in callback
+`https://sculpting.example.com/api/auth/callback/onionrings`. Replace that example
+host with the actual production `BETTER_AUTH_URL` origin; no production origin
+is configured in this checkout. Register each additional environment separately.
+Leave browser origins and back-channel settings as currently configured.
+
+The provider must deploy its v0.1.3 revocation behavior. Verify two applications
+on the same SSO session: sign out in A, return directly to A's landing, then have B
+check UserInfo, reject its next protected request and clear its local session.
+Repeat with central account/admin logout, another device, concurrent same-account
+logins, expired tokens and provider outages. The simulated PostgreSQL suite covers
+these session cases, but real application-B registration, provider/admin access,
+and a second signed-in device are needed to prove the live cross-application flow.
+
+Live verification on 2026-10-27 succeeded for hosted discovery, local sign-in,
+protected access, absence of provider credentials from the public session API,
+and one Sign out returning directly to `http://localhost:3000/` without an extra
+confirmation. The local session was null, a protected API returned 401, and the
+central account page was anonymous afterward. No registration changes were made.
+The current provider account is denied administration access. Live application-B,
+central/admin-initiated revocation, a separate device, concurrent same-account
+hints, focus revalidation and injected provider-outage checks remain to run;
+further browser inspection also encountered repeated automation timeouts.
 
 ## Schema and migrations
 
@@ -233,7 +298,7 @@ Project pages open a full-page React Flow entity/relationship editor. Both `view
 and `edit` members can open a shared project; private
 and missing projects produce the same not-found page. Every project server
 function authenticates the caller and reads access from the database. The account
-menu contains appearance preferences and local logout. Dark mode is the initial
+menu contains appearance preferences and Sign out. Dark mode is the initial
 theme; users can choose light, dark, or their system preference.
 
 Owned project cards have an options menu with a confirmed delete action. Deletion
@@ -368,7 +433,9 @@ name changed to `sculpting_db_test`, then run `bun test`. Without it the integra
 suite is skipped. The provider is simulated: no real OnionRings credentials or
 identities are used. Coverage includes code exchange with Basic authentication,
 PKCE, first login, stable subjects, disabled email linking, nonce/signature rejection,
-consent denial, invalid/expired transactions, local logout, and issuer pinning after
+consent denial, invalid/expired transactions, encrypted session bindings, provider
+logout hints under concurrent logins, peer/admin revocation, device isolation,
+outage denial, callback cancellation, and issuer pinning after
 a discovery outage.
 
 Application schema tests also run against `TEST_DATABASE_URL`. They apply the

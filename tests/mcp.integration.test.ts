@@ -12,7 +12,7 @@ import { eq, inArray } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
-import { makeSignature } from "better-auth/crypto"
+import { makeSignature, symmetricEncrypt } from "better-auth/crypto"
 import { verifyOAuthQueryParams } from "@better-auth/oauth-provider"
 import {
   Client,
@@ -80,13 +80,20 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
       init?: RequestInit
     ) => {
       const request = new Request(input, init)
-      if (new URL(request.url).origin === "https://auth.onionrings.dev")
+      if (new URL(request.url).origin === "https://auth.onionrings.dev") {
+        if (new URL(request.url).pathname.endsWith("/userinfo"))
+          return Response.json({
+            sub: request.headers.get("authorization")?.slice(7),
+          })
         return Response.json({
           issuer: ONIONRINGS_ISSUER,
           authorization_endpoint: `${ONIONRINGS_ISSUER}/oauth2/authorize`,
           token_endpoint: `${ONIONRINGS_ISSUER}/oauth2/token`,
           jwks_uri: `${ONIONRINGS_ISSUER}/jwks`,
+          userinfo_endpoint: `${ONIONRINGS_ISSUER}/oauth2/userinfo`,
+          end_session_endpoint: `${ONIONRINGS_ISSUER}/oauth2/end-session`,
         })
+      }
       return originalFetch(input, init)
     }) as typeof fetch
     server = Bun.serve({
@@ -131,7 +138,25 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
     )
     for (const id of userIds) {
       const sessionToken = randomBytes(32).toString("hex")
+      const fence = `mcp-test:${id}`
+      await db.insert(schema.verification).values({
+        id: randomUUID(),
+        identifier: fence,
+        value: "active",
+        expiresAt: new Date(Date.now() + 3600_000),
+      })
       await db.insert(schema.session).values({
+        onionCredentials: await symmetricEncrypt({
+          key: appSecret,
+          data: JSON.stringify({
+            issuer: ONIONRINGS_ISSUER,
+            subject: id,
+            accessToken: id,
+            idToken: "fixture-id-token",
+            expiresAt: Date.now() + 3600_000,
+            fence,
+          }),
+        }),
         id: randomUUID(),
         userId: id,
         token: sessionToken,
@@ -172,6 +197,12 @@ describe.skipIf(!databaseURL)("project MCP, OAuth and live updates", () => {
       await db
         .delete(schema.oauthResource)
         .where(inArray(schema.oauthResource.identifier, resources.splice(0)))
+    await db.delete(schema.verification).where(
+      inArray(
+        schema.verification.identifier,
+        userIds.map((id) => `mcp-test:${id}`)
+      )
+    )
     cookies.clear()
   })
   afterAll(async () => {

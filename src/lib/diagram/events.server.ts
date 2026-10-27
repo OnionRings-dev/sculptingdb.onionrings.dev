@@ -6,7 +6,8 @@ export async function projectEvents(
   request: Request,
   database: Database,
   userId: string,
-  projectId: string
+  projectId: string,
+  authorize?: () => Promise<boolean>
 ) {
   if (!(await projectAccess(database, userId, projectId)))
     return new Response("Not found", { status: 404 })
@@ -34,6 +35,11 @@ export async function projectEvents(
       async function poll() {
         if (isStopped()) return
         try {
+          if (authorize && !(await authorize())) {
+            controller.enqueue(encoder.encode("event: revoked\ndata: {}\n\n"))
+            stop()
+            return
+          }
           const access = await projectAccess(database, userId, projectId)
           if (isStopped()) return
           if (!access) {

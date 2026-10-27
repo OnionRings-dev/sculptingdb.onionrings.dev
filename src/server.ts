@@ -16,7 +16,14 @@ export default createServerEntry({
     // Route beforeLoad guards do not authorize API handlers. Protect all app
     // APIs here, except handlers that perform their own OAuth authentication.
     if (requiresBrowserSession(pathname)) {
-      if (!(await getCurrentUser(request.headers))) {
+      let user
+      try {
+        user = await getCurrentUser(request.headers)
+      } catch (error) {
+        if (error instanceof Response) return error
+        throw error
+      }
+      if (!user) {
         return Response.json(
           { error: "Unauthorized" },
           {

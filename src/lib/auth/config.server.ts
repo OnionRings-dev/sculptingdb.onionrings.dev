@@ -11,11 +11,14 @@ import type { BetterAuthPlugin } from "better-auth"
 import type { NodePgDatabase } from "drizzle-orm/node-postgres"
 import type { AuthEnv } from "./env.server"
 import * as schema from "@/db/schema"
+import { onionRingsSessions } from "./onionrings.server"
 
 export function createAppAuth(
   env: AuthEnv,
   database: NodePgDatabase<typeof schema>
 ) {
+  const onionSessions = onionRingsSessions(env, database)
+
   function verifyIssuer(providers: Array<{ id: string; issuer?: string }>) {
     const provider = providers.find(({ id }) => id === "onionrings")
     if (provider && provider.issuer !== env.issuer) {
@@ -59,7 +62,18 @@ export function createAppAuth(
       storeAccountCookie: false,
       storeStateStrategy: "database",
     },
-    session: { cookieCache: { enabled: false } },
+    session: {
+      cookieCache: { enabled: false },
+      additionalFields: {
+        onionCredentials: {
+          type: "string",
+          required: false,
+          input: false,
+          returned: false,
+        },
+      },
+    },
+    databaseHooks: onionSessions.databaseHooks,
     advanced: {
       disableOriginCheck: false,
       disableCSRFCheck: false,
@@ -81,7 +95,8 @@ export function createAppAuth(
             requireIdTokenVerification: true,
             pkce: true,
             scopes: ["openid", "profile", "email"],
-            disableProviderLogout: true,
+            disableProviderLogout: false,
+            postLogoutRedirectURI: new URL("/", env.baseURL).href,
             disableSignUp: false,
             disableImplicitSignUp: false,
             mapProfileToUser: (profile) => ({ name: profile.name ?? "" }),
@@ -89,6 +104,7 @@ export function createAppAuth(
         ],
       }),
       trustedIssuer,
+      onionSessions.plugin,
       jwt({ jwt: { issuer: `${env.baseURL}/api/auth` } }),
       projectOAuthProvider(database, env.baseURL),
       tanstackStartCookies(),

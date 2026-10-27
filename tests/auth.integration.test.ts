@@ -3,11 +3,12 @@ import { randomBytes } from "node:crypto"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
-import { exportJWK, generateKeyPair, SignJWT } from "jose"
+import { decodeJwt, exportJWK, generateKeyPair, SignJWT } from "jose"
 import { createAppAuth } from "../src/lib/auth/config.server"
 import { ONIONRINGS_ISSUER } from "../src/lib/auth/env.server"
 import * as schema from "../src/db/schema"
 import { eq } from "drizzle-orm"
+import { symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto"
 import { verifyOAuthQueryParams } from "@better-auth/oauth-provider"
 import { createUntitledProject } from "../src/lib/projects/project-store.server"
 import { prepareConnection } from "../src/lib/mcp/authorization-store.server"
@@ -26,6 +27,7 @@ type Authorization = {
   email: string
   emailVerified?: boolean
   invalidNonce?: boolean
+  sso?: string
   invalidSignature?: boolean
 }
 
@@ -41,6 +43,14 @@ describe.skipIf(!databaseURL)(
     let discoveryAvailable = true
     const authorizations = new Map<string, Authorization>()
     let exchanges = 0
+    let userInfoStatus = 200
+    let wrongSubject = false
+    let networkFailure = false
+    let endSessionEndpoint = `${ONIONRINGS_ISSUER}/oauth2/end-session`
+    const accessTokens = new Map<
+      string,
+      { subject: string; sso: string; revoked: boolean }
+    >()
 
     async function mockFetch(
       input: string | URL | Request,
@@ -60,9 +70,28 @@ describe.skipIf(!databaseURL)(
           token_endpoint: `${ONIONRINGS_ISSUER}/oauth2/token`,
           userinfo_endpoint: `${ONIONRINGS_ISSUER}/oauth2/userinfo`,
           jwks_uri: `${ONIONRINGS_ISSUER}/jwks`,
-          end_session_endpoint: `${ONIONRINGS_ISSUER}/oauth2/end-session`,
+          end_session_endpoint: endSessionEndpoint,
           id_token_signing_alg_values_supported: ["EdDSA"],
         })
+      }
+      if (url.pathname.endsWith("/oauth2/userinfo")) {
+        if (networkFailure) throw new TypeError("Simulated network failure")
+        const token = request.headers.get("authorization")?.slice(7) ?? ""
+        const record = accessTokens.get(token)
+        if (!record || record.revoked) return Response.json({}, { status: 401 })
+        if (userInfoStatus !== 200)
+          return Response.json({}, { status: userInfoStatus })
+        return Response.json({
+          sub: wrongSubject ? "another-subject" : record.subject,
+        })
+      }
+      if (url.pathname.endsWith("/oauth2/end-session")) {
+        const hint = decodeJwt(url.searchParams.get("id_token_hint")!)
+        for (const record of accessTokens.values())
+          if (record.sso === hint.sid) record.revoked = true
+        return Response.redirect(
+          url.searchParams.get("post_logout_redirect_uri")!
+        )
       }
       if (url.pathname.endsWith("/jwks")) return Response.json({ keys: [jwk] })
       if (!url.pathname.endsWith("/oauth2/token"))
@@ -96,6 +125,7 @@ describe.skipIf(!databaseURL)(
         ? (await generateKeyPair("EdDSA")).privateKey
         : keys.privateKey
       const idToken = await new SignJWT({
+        sid: authorization.sso ?? "browser-one",
         email: authorization.email,
         email_verified: authorization.emailVerified ?? true,
         nonce: authorization.invalidNonce ? "wrong-nonce" : authorization.nonce,
@@ -109,8 +139,14 @@ describe.skipIf(!databaseURL)(
         .setExpirationTime("5m")
         .sign(signingKey)
 
+      const accessToken = `test-access-token-${randomBytes(16).toString("hex")}`
+      accessTokens.set(accessToken, {
+        subject: authorization.subject,
+        sso: authorization.sso ?? "browser-one",
+        revoked: false,
+      })
       return Response.json({
-        access_token: "test-access-token",
+        access_token: accessToken,
         token_type: "Bearer",
         expires_in: 3600,
         id_token: idToken,
@@ -227,7 +263,7 @@ describe.skipIf(!databaseURL)(
       expect(await auth.api.getSession({ headers: new Headers() })).toBeNull()
     })
 
-    test("first login creates a local account, keeps tokens server-side and logs out locally", async () => {
+    test("first login encrypts session-specific credentials and prepares provider logout", async () => {
       const response = await complete("subject-one", "first@example.com")
       expect(response.status).toBe(302)
       expect(new URL(response.headers.get("location")!, baseURL).pathname).toBe(
@@ -241,7 +277,17 @@ describe.skipIf(!databaseURL)(
       const [account] = await db.select().from(schema.account)
       expect(account.accountId).toBe("subject-one")
       expect(account.providerId).toBe("onionrings")
-      expect(account.accessToken).not.toBe("test-access-token")
+      expect(account.accessToken).not.toStartWith("test-access-token")
+      expect(account.idToken).toBeNull()
+      const [stored] = await db
+        .select()
+        .from(schema.session)
+        .where(eq(schema.session.id, session!.session.id))
+      expect(stored.onionCredentials).toBeTruthy()
+      expect(stored.onionCredentials).not.toContain("test-access-token")
+      expect(stored.onionCredentials).not.toContain("subject-one")
+      expect(JSON.stringify(session)).not.toContain("onionCredentials")
+      expect(JSON.stringify(session)).not.toContain("test-access-token")
       expect(cookie).not.toContain("test-access-token")
       const sessionCookie = response.headers
         .getSetCookie()
@@ -249,7 +295,7 @@ describe.skipIf(!databaseURL)(
       expect(sessionCookie).toContain("HttpOnly")
       expect(sessionCookie).toContain("SameSite=Lax")
 
-      const logout = await auth.handler(
+      const logoutResponse = await auth.handler(
         new Request(`${baseURL}/api/auth/sign-out`, {
           method: "POST",
           headers: {
@@ -260,8 +306,17 @@ describe.skipIf(!databaseURL)(
           body: "{}",
         })
       )
-      expect(logout.status).toBe(200)
-      expect(logout.headers.get("location")).toBeNull()
+      expect(logoutResponse.status).toBe(200)
+      const logoutURL = new URL(logoutResponse.headers.get("location")!)
+      expect(logoutURL.origin + logoutURL.pathname).toBe(
+        `${ONIONRINGS_ISSUER}/oauth2/end-session`
+      )
+      expect(logoutURL.searchParams.get("post_logout_redirect_uri")).toBe(
+        `${baseURL}/`
+      )
+      expect(decodeJwt(logoutURL.searchParams.get("id_token_hint")!).sub).toBe(
+        "subject-one"
+      )
       expect(await auth.api.getSession({ headers })).toBeNull()
     })
 
@@ -432,6 +487,260 @@ describe.skipIf(!databaseURL)(
       } finally {
         discoveryIssuer = ONIONRINGS_ISSUER
       }
+    })
+
+    async function logout(cookie: string, body: Record<string, unknown> = {}) {
+      return auth.handler(
+        new Request(`${baseURL}/api/auth/sign-out`, {
+          method: "POST",
+          headers: {
+            Cookie: cookie,
+            Origin: baseURL,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        })
+      )
+    }
+
+    test("concurrent same-account logins retain distinct hints; SSO revokes peers and preserves another device", async () => {
+      const [a, b, other] = await Promise.all([
+        complete("subject-one", "first@example.com", { sso: "shared-browser" }),
+        complete("subject-one", "first@example.com", { sso: "shared-browser" }),
+        complete("subject-one", "first@example.com", { sso: "other-device" }),
+      ])
+      const headersA = new Headers({ Cookie: cookies(a) })
+      const headersB = new Headers({ Cookie: cookies(b) })
+      const headersOther = new Headers({ Cookie: cookies(other) })
+      const original = await auth.api.getSession({ headers: headersA })
+      const binding = (
+        await db
+          .select()
+          .from(schema.session)
+          .where(eq(schema.session.id, original!.session.id))
+      )[0].onionCredentials
+      const response = await logout(cookies(a), {
+        callbackURL: "/unregistered?return=evil",
+        disableRedirect: true,
+        state: "untrusted",
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get("location")).toBeNull()
+      const url = new URL((await response.json()).url)
+      expect(decodeJwt(url.searchParams.get("id_token_hint")!).sid).toBe(
+        "shared-browser"
+      )
+      expect(url.searchParams.get("post_logout_redirect_uri")).toBe(
+        `${baseURL}/`
+      )
+      expect(url.searchParams.has("state")).toBe(false)
+      expect(await auth.api.getSession({ headers: headersA })).toBeNull()
+      const providerReturn = await mockFetch(url)
+      expect(providerReturn.headers.get("location")).toBe(`${baseURL}/`)
+      const revoked = await auth.handler(
+        new Request(`${baseURL}/api/auth/get-session`, { headers: headersB })
+      )
+      expect(await revoked.json()).toBeNull()
+      expect(
+        revoked.headers
+          .getSetCookie()
+          .some(
+            (value) =>
+              value.includes("session_token=") && value.includes("Max-Age=0")
+          )
+      ).toBe(true)
+      expect(
+        await auth.api.getSession({ headers: headersOther })
+      ).not.toBeNull()
+      expect(binding).toBeTruthy()
+    })
+
+    test("central/admin revocation, forbidden tokens and subject mismatch invalidate only the matching session", async () => {
+      for (const mode of ["admin", "forbidden", "subject"]) {
+        const response = await complete("subject-one", "first@example.com", {
+          sso: `central-${mode}`,
+        })
+        const headers = new Headers({ Cookie: cookies(response) })
+        const session = await auth.api.getSession({ headers })
+        if (mode === "admin")
+          for (const record of accessTokens.values()) {
+            if (record.sso === `central-${mode}`) record.revoked = true
+          }
+        userInfoStatus = mode === "forbidden" ? 403 : 200
+        wrongSubject = mode === "subject"
+        try {
+          if (mode === "admin") {
+            const protectedCheck = await auth.handler(
+              new Request(`${baseURL}/api/auth/list-sessions`, { headers })
+            )
+            expect(protectedCheck.status).toBe(401)
+          }
+          expect(await auth.api.getSession({ headers })).toBeNull()
+          expect(
+            await db
+              .select()
+              .from(schema.session)
+              .where(eq(schema.session.id, session!.session.id))
+          ).toHaveLength(0)
+        } finally {
+          userInfoStatus = 200
+          wrongSubject = false
+        }
+      }
+    })
+
+    test("provider outages deny public and server session checks without deleting credentials", async () => {
+      const response = await complete("subject-one", "first@example.com")
+      const headers = new Headers({ Cookie: cookies(response) })
+      const session = await auth.api.getSession({ headers })
+      userInfoStatus = 503
+      try {
+        const publicCheck = await auth.handler(
+          new Request(`${baseURL}/api/auth/get-session`, { headers })
+        )
+        expect(publicCheck.status).toBe(503)
+        networkFailure = true
+        const timeoutCheck = await auth.handler(
+          new Request(`${baseURL}/api/auth/get-session`, { headers })
+        )
+        expect(timeoutCheck.status).toBe(503)
+        networkFailure = false
+        await expect(auth.api.getSession({ headers })).rejects.toMatchObject({
+          statusCode: 503,
+        })
+        expect(
+          await db
+            .select()
+            .from(schema.session)
+            .where(eq(schema.session.id, session!.session.id))
+        ).toHaveLength(1)
+      } finally {
+        userInfoStatus = 200
+        networkFailure = false
+      }
+      expect(await auth.api.getSession({ headers })).not.toBeNull()
+    })
+
+    test("old unbound sessions require reauthentication and cannot borrow account tokens", async () => {
+      const response = await complete("subject-one", "first@example.com")
+      const headers = new Headers({ Cookie: cookies(response) })
+      const session = await auth.api.getSession({ headers })
+      await db
+        .update(schema.session)
+        .set({ onionCredentials: null })
+        .where(eq(schema.session.id, session!.session.id))
+      expect(await auth.api.getSession({ headers })).toBeNull()
+    })
+
+    test("expired provider tokens require fresh authentication without a refresh grant", async () => {
+      const response = await complete("subject-one", "first@example.com")
+      const headers = new Headers({ Cookie: cookies(response) })
+      const session = await auth.api.getSession({ headers })
+      const row = (
+        await db
+          .select()
+          .from(schema.session)
+          .where(eq(schema.session.id, session!.session.id))
+      )[0]
+      const credentials = JSON.parse(
+        await symmetricDecrypt({
+          key: "integration-test-app-secret-at-least-32-characters",
+          data: row.onionCredentials!,
+        })
+      )
+      credentials.expiresAt = Date.now() - 1
+      await db
+        .update(schema.session)
+        .set({
+          onionCredentials: await symmetricEncrypt({
+            key: "integration-test-app-secret-at-least-32-characters",
+            data: JSON.stringify(credentials),
+          }),
+        })
+        .where(eq(schema.session.id, row.id))
+      expect(await auth.api.getSession({ headers })).toBeNull()
+    })
+
+    test("logout follows the trusted advertised endpoint and rejects insecure discovery destinations", async () => {
+      const previous = auth
+      try {
+        endSessionEndpoint = `${ONIONRINGS_ISSUER}/advertised-logout`
+        auth = createAuth()
+        const response = await complete("subject-one", "first@example.com")
+        const result = await logout(cookies(response), {
+          disableRedirect: true,
+        })
+        const url = new URL((await result.json()).url)
+        expect(url.origin + url.pathname).toBe(endSessionEndpoint)
+        for (const endpoint of [
+          "http://auth.onionrings.dev/logout",
+          "https://attacker.example/logout",
+        ]) {
+          endSessionEndpoint = endpoint
+          auth = createAuth()
+          const denied = await auth.handler(
+            new Request(`${baseURL}/api/auth/sign-in/social`, {
+              method: "POST",
+              headers: { Origin: baseURL, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                provider: "onionrings",
+                callbackURL: "/",
+              }),
+            })
+          )
+          expect(denied.status).toBe(503)
+        }
+      } finally {
+        auth = previous
+        endSessionEndpoint = `${ONIONRINGS_ISSUER}/oauth2/end-session`
+      }
+    })
+
+    test("sign-out cancels an already started sign-in transaction", async () => {
+      const { authorizationURL, cookie } = await begin()
+      const code = randomBytes(16).toString("hex")
+      authorizations.set(code, {
+        nonce: authorizationURL.searchParams.get("nonce")!,
+        challenge: authorizationURL.searchParams.get("code_challenge")!,
+        subject: "subject-one",
+        email: "first@example.com",
+      })
+      expect((await logout(cookie)).status).toBe(200)
+      const callback = new URL(`${baseURL}/api/auth/callback/onionrings`)
+      callback.searchParams.set(
+        "state",
+        authorizationURL.searchParams.get("state")!
+      )
+      callback.searchParams.set("code", code)
+      const response = await auth.handler(
+        new Request(callback, { headers: { Cookie: cookie } })
+      )
+      expect(cookies(response)).not.toContain("session_token")
+      expect(
+        await auth.api.getSession({
+          headers: new Headers({ Cookie: cookies(response) }),
+        })
+      ).toBeNull()
+    })
+
+    test("cross-origin logout is rejected before changing the session", async () => {
+      const response = await complete("subject-one", "first@example.com")
+      const cookie = cookies(response)
+      const denied = await auth.handler(
+        new Request(`${baseURL}/api/auth/sign-out`, {
+          method: "POST",
+          headers: {
+            Cookie: cookie,
+            Origin: "https://attacker.example.com",
+            "Content-Type": "application/json",
+          },
+          body: "{}",
+        })
+      )
+      expect(denied.status).toBe(403)
+      expect(
+        await auth.api.getSession({ headers: new Headers({ Cookie: cookie }) })
+      ).not.toBeNull()
     })
 
     test("an anonymous MCP authorization resumes after the external identity-provider login", async () => {

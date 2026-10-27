@@ -47,6 +47,8 @@ export const session = pgTable(
       .notNull(),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
+    // Server-only encrypted OIDC credentials, bound to this individual session.
+    onionCredentials: text("onion_credentials"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

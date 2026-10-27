@@ -12,6 +12,7 @@ import { createIsomorphicFn } from "@tanstack/react-start"
 
 import appCss from "../styles.css?url"
 import { getUser } from "@/lib/auth/session.functions"
+import { useSessionRevalidation } from "@/lib/auth/use-session-revalidation"
 
 const getSiteOrigin = createIsomorphicFn()
   .server(() => new URL(process.env.BETTER_AUTH_URL!).origin)
@@ -100,6 +101,7 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   const { user } = Route.useRouteContext()
+  useSessionRevalidation(Boolean(user))
   const hideDevtools = useRouterState({
     select: (state) =>
       state.location.pathname === "/login" ||

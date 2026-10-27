@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { authClient } from "@/lib/auth/client"
+import { authNavigation } from "@/lib/auth/navigation"
 import type { AccountUser } from "@/lib/projects/types"
 
 export function AccountMenu({ user }: { user: AccountUser }) {
@@ -28,13 +29,19 @@ export function AccountMenu({ user }: { user: AccountUser }) {
   const [failed, setFailed] = useState(false)
 
   async function signOut() {
+    if (pending) return
+    authNavigation.beginSignOut()
     setPending(true)
     setFailed(false)
     try {
-      const result = await authClient.signOut()
-      if (result.error) throw new Error("Sign-out failed")
-      window.location.assign("/")
+      const result = await authClient.signOut({
+        callbackURL: "/",
+        disableRedirect: true,
+      })
+      if (result.error || !result.data.url) throw new Error("Sign-out failed")
+      window.location.assign(result.data.url)
     } catch {
+      authNavigation.retrySignOut()
       setFailed(true)
       setPending(false)
     }
@@ -101,7 +108,7 @@ export function AccountMenu({ user }: { user: AccountUser }) {
               disabled={pending}
             >
               <HugeiconsIcon icon={Logout01Icon} strokeWidth={1.5} />
-              Log out
+              Sign out
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>

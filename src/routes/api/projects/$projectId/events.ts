@@ -11,7 +11,13 @@ export const Route = createFileRoute("/api/projects/$projectId/events")({
         if (!user) return new Response("Unauthorized", { status: 401 })
         if (!z.uuid().safeParse(params.projectId).success)
           return new Response("Not found", { status: 404 })
-        return projectEvents(request, db, user.id, params.projectId)
+        return projectEvents(
+          request,
+          db,
+          user.id,
+          params.projectId,
+          async () => (await getCurrentUser(request.headers))?.id === user.id
+        )
       },
     },
   },
